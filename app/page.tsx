@@ -147,6 +147,10 @@ export default function Home() {
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
   const [newHost, setNewHost] = useState("");
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [editEventName, setEditEventName] = useState("");
+  const [editEventDate, setEditEventDate] = useState("");
+  const [editEventHost, setEditEventHost] = useState("");
 
   const [selectedEventId, setSelectedEventId] = useState("");
   const [voteDrafts, setVoteDrafts] = useState<Record<string, typeof defaultVote>>({});
@@ -249,6 +253,77 @@ export default function Home() {
     });
     if (error) return alert(error.message);
     setNewEventName("");
+    await loadAll();
+  }
+
+  function startEditEvent(event: EventRow) {
+    if (!isAdmin) return;
+    setEditingEventId(event.id);
+    setEditEventName(event.name);
+    setEditEventDate(event.event_date);
+    setEditEventHost(event.host_id ?? "");
+  }
+
+  function cancelEditEvent() {
+    setEditingEventId(null);
+    setEditEventName("");
+    setEditEventDate("");
+    setEditEventHost("");
+  }
+
+  async function saveEventEdit() {
+    if (!isAdmin || !editingEventId) return;
+    if (!editEventName.trim()) return alert("La juntada necesita un nombre.");
+
+    const event = events.find((e) => e.id === editingEventId);
+    if (!event) return;
+
+    if (event.is_closed) {
+      return alert("La juntada está cerrada. Reabrila antes de modificar sus datos.");
+    }
+
+    const { error } = await supabase
+      .from("events")
+      .update({
+        name: editEventName.trim(),
+        event_date: editEventDate,
+        host_id: editEventHost || null,
+      })
+      .eq("id", editingEventId);
+
+    if (error) return alert(error.message);
+    cancelEditEvent();
+    await loadAll();
+  }
+
+  async function deleteEvent(event: EventRow) {
+    if (!isAdmin) return;
+
+    const ok = confirm(
+      `¿Eliminar "${event.name}"?\n\nEsto va a borrar también sus asistencias, votos y Bonus/Malus. Esta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+
+    const typed = prompt(`Para confirmar, escribí ELIMINAR`);
+    if (typed !== "ELIMINAR") {
+      alert("Eliminación cancelada.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("events")
+      .delete()
+      .eq("id", event.id);
+
+    if (error) return alert(error.message);
+
+    if (selectedEventId === event.id) {
+      setSelectedEventId("");
+    }
+    if (editingEventId === event.id) {
+      cancelEditEvent();
+    }
+
     await loadAll();
   }
 
@@ -769,6 +844,79 @@ export default function Home() {
               </div>
             </div>
             <button className="primary" onClick={createEvent}>Crear juntada</button>
+          </section>
+
+          <section className="card">
+            <h2>🗂️ Administrar juntadas</h2>
+            <p className="muted">Podés editar nombre, fecha y anfitrión mientras la juntada esté abierta. También podés eliminarla por completo.</p>
+
+            <div className="event-admin-list">
+              {events.length === 0 && <div className="notice">Todavía no hay juntadas creadas.</div>}
+
+              {events.map((e) => {
+                const host = profiles.find((p) => p.id === e.host_id);
+                const isEditing = editingEventId === e.id;
+
+                return (
+                  <div className="event-admin-card" key={e.id}>
+                    {!isEditing ? (
+                      <>
+                        <div className="event-admin-main">
+                          <div>
+                            <strong>{e.name}</strong>
+                            <div className="muted tiny">
+                              {formatDate(e.event_date)}
+                              {host ? ` · ${host.emoji} ${host.name}` : " · Sin anfitrión"}
+                              {e.is_closed ? " · 🔒 Cerrada" : " · 🟢 Abierta"}
+                            </div>
+                          </div>
+                          <div className="event-admin-actions">
+                            <button
+                              className="secondary"
+                              disabled={e.is_closed}
+                              onClick={() => startEditEvent(e)}
+                              title={e.is_closed ? "La juntada está cerrada" : "Editar juntada"}
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              className="danger-btn"
+                              onClick={() => deleteEvent(e)}
+                            >
+                              🗑️ Eliminar
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="event-edit-form">
+                        <div className="form-grid">
+                          <div>
+                            <label>Nombre</label>
+                            <input value={editEventName} onChange={(x)=>setEditEventName(x.target.value)} />
+                          </div>
+                          <div>
+                            <label>Fecha</label>
+                            <input type="date" value={editEventDate} onChange={(x)=>setEditEventDate(x.target.value)} />
+                          </div>
+                          <div>
+                            <label>Anfitrión</label>
+                            <select value={editEventHost} onChange={(x)=>setEditEventHost(x.target.value)}>
+                              <option value="">Sin definir</option>
+                              {profiles.map(p=><option value={p.id} key={p.id}>{p.emoji} {p.name}</option>)}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="event-edit-actions">
+                          <button className="primary" onClick={saveEventEdit}>Guardar cambios</button>
+                          <button className="secondary" onClick={cancelEditEvent}>Cancelar</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </section>
 
           <section className="card">

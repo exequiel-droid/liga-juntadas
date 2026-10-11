@@ -128,3 +128,60 @@ git add .
 git commit -m "Registro sin confirmacion por email"
 git push
 ```
+
+
+## v5 — Editar y eliminar juntadas
+
+El Admin ahora puede administrar fechas existentes desde la pestaña **Admin**:
+
+- ✏️ Editar:
+  - nombre;
+  - fecha;
+  - anfitrión.
+- 🗑️ Eliminar:
+  - pide confirmación;
+  - luego exige escribir `ELIMINAR`;
+  - borra también asistencias, votos y Bonus/Malus vinculados gracias a `ON DELETE CASCADE`.
+
+### Restricción
+
+Una juntada cerrada no se puede editar desde la interfaz. Esto evita cambiar fecha/anfitrión después de comenzar el plazo de votación.
+
+### SQL
+
+No hay cambios estructurales obligatorios si ya ejecutaste:
+- `schema.sql`
+- `update_v2.sql`
+- `update_v3.sql`
+
+Incluí `supabase/update_v5.sql` solo como verificación/versionado.
+
+### Actualizar
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+Opcionalmente guardá también:
+
+```text
+supabase/update_v5.sql
+```
+
+Después:
+
+```bash
+npm.cmd run dev
+```
+
+Y si está bien:
+
+```bash
+git add .
+git commit -m "Editar y eliminar juntadas"
+git push
+```

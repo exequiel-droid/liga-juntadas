@@ -82,3 +82,18 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   .close-event-btn{width:100%}
   .vote-detail-title b{margin-left:0;width:100%}
 }
+
+
+/* v5: edición y eliminación de juntadas */
+.event-admin-list{display:grid;gap:10px}
+.event-admin-card{border:1px solid var(--line);background:#121721;border-radius:16px;padding:12px}
+.event-admin-main{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.event-admin-actions,.event-edit-actions{display:flex;gap:8px;flex-wrap:wrap}
+.danger-btn{border:0;border-radius:12px;padding:10px 13px;font-weight:900;background:var(--red);color:#fff}
+.event-admin-actions button:disabled{opacity:.45;cursor:not-allowed}
+.event-edit-form{display:grid;gap:10px}
+@media(max-width:760px){
+  .event-admin-main{flex-direction:column;align-items:flex-start}
+  .event-admin-actions,.event-edit-actions{width:100%}
+  .event-admin-actions button,.event-edit-actions button{flex:1}
+}
