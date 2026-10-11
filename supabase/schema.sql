@@ -112,17 +112,15 @@ alter table public.attendance enable row level security;
 alter table public.votes enable row level security;
 alter table public.point_adjustments enable row level security;
 
--- Perfiles: todos los logueados pueden ver. Cada uno puede editar su perfil.
+-- Perfiles: todos los logueados pueden ver. SOLO el Admin puede modificarlos.
 drop policy if exists "profiles_read" on public.profiles;
 create policy "profiles_read" on public.profiles for select to authenticated using (true);
 
 drop policy if exists "profiles_self_update" on public.profiles;
-create policy "profiles_self_update" on public.profiles for update to authenticated
-using (id = auth.uid() or public.is_admin())
-with check (
-  (id = auth.uid() and role = (select p.role from public.profiles p where p.id = auth.uid()))
-  or public.is_admin()
-);
+drop policy if exists "profiles_admin_update" on public.profiles;
+create policy "profiles_admin_update" on public.profiles for update to authenticated
+using (public.is_admin())
+with check (public.is_admin());
 
 -- Eventos: todos ven, solo Admin crea/edita/borra.
 drop policy if exists "events_read" on public.events;

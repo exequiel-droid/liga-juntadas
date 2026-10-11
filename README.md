@@ -119,3 +119,21 @@ Además, la base tiene un `CHECK` que obliga a que una falta `unjustified` tenga
 - Premios de temporada.
 - Fotos de perfil.
 - Temporadas 2026 / 2027 / histórico.
+
+## Actualización v2
+
+Cambios incluidos:
+- Botón 👁️ para mostrar/ocultar la contraseña.
+- Botón 📅 para abrir el selector de fecha, especialmente útil desde celular.
+- Los perfiles pasan a ser editables únicamente por el Admin.
+- Nueva pestaña `Reglas`.
+- Pesos del puntaje: Colaboración 30%, Limpieza 30%, Comportamiento 20%, Actitud 20%.
+- Falta sin justificar: -10 puntos obligatorios.
+
+### Si ya habías creado la base antes de esta versión
+
+No vuelvas a ejecutar todo `schema.sql`. Ejecutá únicamente:
+
+`supabase/update_v2.sql`
+
+Eso reemplaza la política de perfiles para que solo el Admin pueda modificarlos.

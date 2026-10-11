@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 type Role = "admin" | "user";
@@ -77,7 +77,12 @@ function formatDate(value: string) {
 }
 
 function scoreVote(v: Vote) {
-  return ((v.collaboration + v.cleaning + v.behavior + v.attitude) / 40) * 100;
+  return (
+    v.collaboration * 3 +
+    v.cleaning * 3 +
+    v.behavior * 2 +
+    v.attitude * 2
+  );
 }
 
 export default function Home() {
@@ -89,13 +94,15 @@ export default function Home() {
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [votes, setVotes] = useState<Vote[]>([]);
-  const [tab, setTab] = useState<"ranking" | "vote" | "admin" | "history" | "profile">("ranking");
+  const [tab, setTab] = useState<"ranking" | "vote" | "admin" | "history" | "profile" | "rules">("ranking");
   const [loading, setLoading] = useState(true);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
   const [authMessage, setAuthMessage] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const dateInputRef = useRef<HTMLInputElement>(null);
 
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
@@ -265,12 +272,12 @@ export default function Home() {
     await loadAll();
   }
 
-  async function updateMyProfile(name: string, emoji: string, title: string) {
-    if (!userId) return;
+  async function updateProfile(profileId: string, name: string, emoji: string, title: string) {
+    if (!isAdmin) return;
     const { error } = await supabase
       .from("profiles")
       .update({ name: name.trim(), emoji: emoji.trim(), title: title.trim() })
-      .eq("id", userId);
+      .eq("id", profileId);
     if (error) return alert(error.message);
     await loadAll();
   }
@@ -334,7 +341,22 @@ export default function Home() {
           <label>Email</label>
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vos@email.com" />
           <label>Contraseña</label>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+          <div className="password-wrap">
+            <input
+              type={showPassword ? "text" : "password"}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+            <button
+              type="button"
+              className="eye-btn"
+              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+              onClick={() => setShowPassword((v) => !v)}
+            >
+              {showPassword ? "🙈" : "👁️"}
+            </button>
+          </div>
           <button className="primary wide" onClick={submitAuth}>
             {authMode === "signin" ? "Entrar a la liga" : "Crear mi cuenta"}
           </button>
@@ -368,6 +390,7 @@ export default function Home() {
         <button className={tab==="vote"?"active":""} onClick={()=>setTab("vote")}>Puntuar</button>
         {isAdmin && <button className={tab==="admin"?"active":""} onClick={()=>setTab("admin")}>Admin</button>}
         <button className={tab==="history"?"active":""} onClick={()=>setTab("history")}>Historial</button>
+        <button className={tab==="rules"?"active":""} onClick={()=>setTab("rules")}>Reglas</button>
         <button className={tab==="profile"?"active":""} onClick={()=>setTab("profile")}>Mi perfil</button>
       </nav>
 
@@ -496,7 +519,29 @@ export default function Home() {
             <h2>👑 Crear juntada</h2>
             <div className="form-grid">
               <div><label>Nombre</label><input value={newEventName} onChange={e=>setNewEventName(e.target.value)} placeholder="Ej: Asado en lo de Pagis.tv" /></div>
-              <div><label>Fecha</label><input type="date" value={newEventDate} onChange={e=>setNewEventDate(e.target.value)} /></div>
+              <div>
+                <label>Fecha</label>
+                <div className="date-wrap">
+                  <input
+                    ref={dateInputRef}
+                    type="date"
+                    value={newEventDate}
+                    onChange={e=>setNewEventDate(e.target.value)}
+                    onClick={() => dateInputRef.current?.showPicker?.()}
+                  />
+                  <button
+                    type="button"
+                    className="calendar-btn"
+                    onClick={() => {
+                      const el = dateInputRef.current;
+                      if (!el) return;
+                      if (typeof el.showPicker === "function") el.showPicker();
+                      else el.focus();
+                    }}
+                    aria-label="Abrir calendario"
+                  >📅</button>
+                </div>
+              </div>
               <div><label>Anfitrión</label>
                 <select value={newHost} onChange={e=>setNewHost(e.target.value)}>
                   <option value="">Sin definir</option>
@@ -526,6 +571,16 @@ export default function Home() {
               />
             ))}
           </section>
+
+          <section className="card">
+            <h2>👥 Administrar perfiles</h2>
+            <p className="muted">Solo el Admin puede cambiar nombre, emoji y título de los integrantes.</p>
+            <div className="profile-admin-grid">
+              {profiles.map((p) => (
+                <AdminProfileEditor key={p.id} profile={p} onSave={updateProfile} />
+              ))}
+            </div>
+          </section>
         </>
       )}
 
@@ -552,8 +607,23 @@ export default function Home() {
         </section>
       )}
 
+      {tab === "rules" && (
+        <Rules />
+      )}
+
       {tab === "profile" && me && (
-        <ProfileEditor profile={me} onSave={updateMyProfile} />
+        <section className="card profile-editor">
+          <h2>👤 Mi perfil</h2>
+          <div className="profile-preview">
+            <div className="big-avatar">{me.emoji}</div>
+            <div>
+              <strong>{me.name}</strong>
+              <div className="title">{me.title}</div>
+              <div className="muted tiny">{isAdmin ? "👑 Administrador" : "Jugador"}</div>
+            </div>
+          </div>
+          <div className="notice">Los perfiles solo los puede modificar el Admin.</div>
+        </section>
       )}
     </main>
   );
@@ -622,21 +692,60 @@ function AdminPerson({
   );
 }
 
-function ProfileEditor({profile,onSave}:{profile:Profile,onSave:(name:string,emoji:string,title:string)=>Promise<void>}) {
+function AdminProfileEditor({profile,onSave}:{profile:Profile,onSave:(id:string,name:string,emoji:string,title:string)=>Promise<void>}) {
   const [name,setName]=useState(profile.name);
   const [emoji,setEmoji]=useState(profile.emoji);
   const [title,setTitle]=useState(profile.title);
 
+  useEffect(() => {
+    setName(profile.name);
+    setEmoji(profile.emoji);
+    setTitle(profile.title);
+  }, [profile.name, profile.emoji, profile.title]);
+
   return (
-    <section className="card profile-editor">
-      <h2>👤 Mi perfil</h2>
-      <div className="profile-preview"><div className="big-avatar">{emoji}</div><div><strong>{name}</strong><div className="title">{title}</div></div></div>
-      <div className="form-grid">
+    <div className="admin-profile-card">
+      <div className="profile-preview compact"><div className="avatar">{emoji || "🙂"}</div><div><strong>{name}</strong><div className="title">{title}</div></div></div>
+      <div className="admin-profile-fields">
         <div><label>Emoji</label><input value={emoji} onChange={e=>setEmoji(e.target.value)} /></div>
         <div><label>Nombre / apodo</label><input value={name} onChange={e=>setName(e.target.value)} /></div>
-        <div><label>Título</label><input value={title} onChange={e=>setTitle(e.target.value)} /></div>
+        <div className="full"><label>Título</label><input value={title} onChange={e=>setTitle(e.target.value)} /></div>
       </div>
-      <button className="primary" onClick={()=>onSave(name,emoji,title)}>Guardar perfil</button>
-    </section>
+      <button className="secondary" onClick={()=>onSave(profile.id,name,emoji,title)}>Guardar perfil</button>
+    </div>
+  );
+}
+
+function Rules() {
+  return (
+    <>
+      <section className="card">
+        <h2>📜 Reglas de puntuación</h2>
+        <p className="muted">La idea es premiar al que suma en la juntada y castigar las ausencias sin justificar. El puntaje de cada voto va de 1 a 10 por categoría y se transforma a una escala de 0 a 100 según estos pesos.</p>
+        <div className="rules-grid">
+          <div className="rule-card"><span>🛒</span><div><strong>Colaboración</strong><small>Compras, organización, traer cosas, dar una mano.</small></div><b>30%</b></div>
+          <div className="rule-card"><span>🧹</span><div><strong>Limpieza</strong><small>Ordenar, lavar, levantar y ayudar al final.</small></div><b>30%</b></div>
+          <div className="rule-card"><span>🤝</span><div><strong>Comportamiento</strong><small>Buena onda, convivencia y respeto al grupo.</small></div><b>20%</b></div>
+          <div className="rule-card"><span>🎉</span><div><strong>Actitud</strong><small>Predisposición, participación y coparse.</small></div><b>20%</b></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>📅 Asistencia y sanciones</h2>
+        <div className="rule-lines">
+          <div><span>✅</span><div><strong>Asistió</strong><small>Puede recibir votos normalmente.</small></div></div>
+          <div><span>🟡</span><div><strong>Falta justificada</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
+          <div><span>🔴</span><div><strong>Falta sin justificar</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
+          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Se suma o resta aparte del voto. Solo el Admin puede asignarlo y siempre lleva una descripción.</small></div></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>🧮 Ejemplo</h2>
+        <p className="muted">Si alguien recibe 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud:</p>
+        <div className="formula">8×3 + 9×3 + 7×2 + 10×2 = <strong>85 puntos</strong></div>
+        <p className="muted tiny">Después se agregan los Bonus/Malus y las penalizaciones por faltas sin justificar.</p>
+      </section>
+    </>
   );
 }
