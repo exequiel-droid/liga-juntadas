@@ -1,139 +1,84 @@
-# 🏆 Liga de Juntadas — Web App
+# 🏆 Liga de Juntadas — Web App v3
 
-Versión web para usar desde PC o celular.
+Esta versión suma control de votos, cierre de juntadas y penalización automática por no votar a tiempo.
 
-## Qué incluye
+## Cambios v3
 
-- Login / registro con Supabase Auth.
-- Rol `admin` y rol `user`.
-- Ranking general.
-- Ranking de asistencias e inasistencias.
-- El que más falta queda marcado para pagar el escabio 🍻.
-- Usuarios puntúan:
-  - 🛒 Colaboración
-  - 🧹 Limpieza
-  - 🤝 Comportamiento
-  - 🎉 Actitud
-- Nadie puede votarse a sí mismo.
-- Solo Admin puede:
-  - Crear juntadas.
-  - Marcar asistencia.
-  - Elegir falta justificada / no justificada.
-  - Cargar motivo de inasistencia.
-  - Crear Bonus/Malus y su descripción.
-- Falta no justificada: `-10 pts` automática.
-- Perfiles editables por cada usuario.
-- Diseño responsive para celular.
+- ✂️ Promedio recortado:
+  - con 5 o más votos recibidos, se elimina el voto más alto y el más bajo de **cada categoría**;
+  - con menos de 5 votos, se usa el promedio normal.
+- ⚠️ Detección de votos atípicos:
+  - si una nota queda a más de 3 puntos del promedio de los demás votantes, aparece en el Panel Admin;
+  - no se elimina automáticamente.
+- 🔎 El Admin puede ver el detalle completo de quién votó a quién y los valores por categoría.
+- 🔒 El Admin cierra la juntada.
+- ⏰ Desde el cierre corren 72 horas para votar.
+- Cada asistente debe votar a todos los demás asistentes.
+- ⛔ Después de las 72 horas ya no se pueden crear ni modificar votos.
+- −5 pts automáticos si un asistente no completó todos sus votos dentro del plazo.
+- 📜 Reglas actualizadas con toda esta lógica.
 
-## 1. Crear Supabase
+## Importante: actualización de Supabase
 
-1. Entrá a https://supabase.com y creá un proyecto gratuito.
-2. Abrí `SQL Editor`.
-3. Copiá TODO el contenido de `supabase/schema.sql` y ejecutalo.
-4. En Supabase > Project Settings / Connect buscá:
-   - Project URL
-   - Publishable key
+Si ya tenés la app v2 funcionando, **NO vuelvas a ejecutar `schema.sql`**.
 
-## 2. Configurar la app
+Ejecutá únicamente:
 
-Copiá `.env.example` como `.env.local`:
-
-```env
-NEXT_PUBLIC_SUPABASE_URL=https://TU-PROYECTO.supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_xxxxx
+```text
+supabase/update_v3.sql
 ```
 
-## 3. Ejecutar localmente
+en Supabase → SQL Editor → New query → Run.
 
-Necesitás Node.js instalado.
+Esto agrega `closed_at` a las juntadas y actualiza las políticas RLS de `votes`.
+
+## Cómo actualizar tu proyecto actual
+
+Copiá desde esta carpeta sobre tu proyecto existente:
+
+- `app/page.tsx`
+- `app/globals.css`
+- `supabase/update_v3.sql`
+- `README.md`
+
+No reemplaces `.env.local`.
+
+Después probá:
 
 ```bash
-npm install
-npm run dev
+npm.cmd run dev
 ```
 
-Abrí:
+Si funciona:
 
-```text
-http://localhost:3000
+```bash
+git add .
+git commit -m "Control de votos y plazo de 72 horas"
+git push
 ```
 
-## 4. Convertirte en Admin
+Vercel debería desplegar automáticamente.
 
-Primero creá tu cuenta desde la web.
+## Puntaje
 
-Después, en Supabase > SQL Editor:
+- 🛒 Colaboración: 30%
+- 🧹 Limpieza: 30%
+- 🤝 Comportamiento: 20%
+- 🎉 Actitud: 20%
 
-```sql
-update public.profiles
-set role = 'admin',
-    name = 'Exe',
-    emoji = '🧠',
-    title = 'El Data Lord'
-where id = (
-  select id
-  from auth.users
-  where email = 'TU_EMAIL'
-);
-```
+Sanciones:
+- 🔴 falta sin justificar: −10 pts.
+- ⏰ votación incompleta al vencer 72 h: −5 pts por juntada.
+- ⚡ Bonus/Malus: solo Admin.
 
-Reemplazá `TU_EMAIL` por el email con el que te registraste.
+## Cómo funciona la penalización de 72 horas
 
-## 5. Publicarla gratis en Vercel
+La penalización se calcula dinámicamente al cargar la app:
 
-1. Subí esta carpeta a un repositorio de GitHub.
-2. Entrá a Vercel.
-3. `Add New Project`.
-4. Importá el repositorio.
-5. En Environment Variables agregá:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-6. Deploy.
+1. la juntada debe estar cerrada;
+2. deben haber pasado 72 horas;
+3. el jugador debe haber asistido;
+4. se cuentan todos los demás asistentes que debía puntuar;
+5. si falta al menos un voto, se aplican −5 puntos una sola vez para esa fecha.
 
-Vercel genera una URL parecida a:
-
-```text
-liga-juntadas.vercel.app
-```
-
-Desde ahí todos pueden entrar desde el celular.
-
-## Seguridad
-
-No depende de esconder botones.
-
-Las tablas usan Row Level Security (RLS):
-- usuarios comunes **no pueden** modificar `attendance`;
-- usuarios comunes **no pueden** agregar `point_adjustments`;
-- cada usuario solo puede crear/editar votos cuyo `voter_id` sea su propio usuario;
-- el Admin sí puede administrar asistencia y Bonus/Malus.
-
-Además, la base tiene un `CHECK` que obliga a que una falta `unjustified` tenga una penalización negativa.
-
-## Próximas mejoras recomendadas
-
-- Invitaciones privadas en vez de registro abierto.
-- Cerrar una fecha para impedir cambios posteriores.
-- Votación anónima.
-- MVP automático por juntada.
-- Premios de temporada.
-- Fotos de perfil.
-- Temporadas 2026 / 2027 / histórico.
-
-## Actualización v2
-
-Cambios incluidos:
-- Botón 👁️ para mostrar/ocultar la contraseña.
-- Botón 📅 para abrir el selector de fecha, especialmente útil desde celular.
-- Los perfiles pasan a ser editables únicamente por el Admin.
-- Nueva pestaña `Reglas`.
-- Pesos del puntaje: Colaboración 30%, Limpieza 30%, Comportamiento 20%, Actitud 20%.
-- Falta sin justificar: -10 puntos obligatorios.
-
-### Si ya habías creado la base antes de esta versión
-
-No vuelvas a ejecutar todo `schema.sql`. Ejecutá únicamente:
-
-`supabase/update_v2.sql`
-
-Eso reemplaza la política de perfiles para que solo el Admin pueda modificarlos.
+No hace falta ningún cron, servidor pago ni automatización externa.

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 
 type Role = "admin" | "user";
 type AttendanceStatus = "present" | "justified" | "unjustified";
+type CategoryKey = "collaboration" | "cleaning" | "behavior" | "attitude";
 
 type Profile = {
   id: string;
@@ -20,6 +21,7 @@ type EventRow = {
   event_date: string;
   host_id: string | null;
   is_closed: boolean;
+  closed_at: string | null;
   created_by: string;
 };
 
@@ -52,13 +54,24 @@ type Vote = {
 };
 
 const supabase = createClient();
+
 const UNJUSTIFIED_PENALTY = -10;
-const categories = [
-  { key: "collaboration", label: "Colaboración", icon: "🛒", sub: "Compras, organización y aporte" },
-  { key: "cleaning", label: "Limpieza", icon: "🧹", sub: "Orden, lavado y ayuda al final" },
-  { key: "behavior", label: "Comportamiento", icon: "🤝", sub: "Convivencia y buena onda" },
-  { key: "attitude", label: "Actitud", icon: "🎉", sub: "Predisposición y participación" },
-] as const;
+const MISSED_VOTING_PENALTY = -5;
+const VOTING_HOURS = 72;
+const OUTLIER_THRESHOLD = 3;
+
+const categories: Array<{
+  key: CategoryKey;
+  label: string;
+  icon: string;
+  sub: string;
+  weight: number;
+}> = [
+  { key: "collaboration", label: "Colaboración", icon: "🛒", sub: "Compras, organización y aporte", weight: 0.30 },
+  { key: "cleaning", label: "Limpieza", icon: "🧹", sub: "Orden, lavado y ayuda al final", weight: 0.30 },
+  { key: "behavior", label: "Comportamiento", icon: "🤝", sub: "Convivencia y buena onda", weight: 0.20 },
+  { key: "attitude", label: "Actitud", icon: "🎉", sub: "Predisposición y participación", weight: 0.20 },
+];
 
 const defaultVote = {
   collaboration: 8,
@@ -76,13 +89,40 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T12:00:00`));
 }
 
-function scoreVote(v: Vote) {
-  return (
-    v.collaboration * 3 +
-    v.cleaning * 3 +
-    v.behavior * 2 +
-    v.attitude * 2
-  );
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("es-AR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function deadlineFor(event: EventRow) {
+  if (!event.closed_at) return null;
+  return new Date(new Date(event.closed_at).getTime() + VOTING_HOURS * 60 * 60 * 1000);
+}
+
+function isDeadlineExpired(event: EventRow) {
+  const deadline = deadlineFor(event);
+  return !!deadline && Date.now() > deadline.getTime();
+}
+
+function weightedScore(values: Record<CategoryKey, number>) {
+  return categories.reduce((sum, c) => sum + values[c.key] * c.weight * 10, 0);
+}
+
+function average(nums: number[]) {
+  if (!nums.length) return 0;
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+function trimmedAverage(nums: number[]) {
+  if (!nums.length) return 0;
+  if (nums.length < 5) return average(nums);
+  const sorted = [...nums].sort((a, b) => a - b);
+  return average(sorted.slice(1, -1));
 }
 
 export default function Home() {
@@ -195,14 +235,45 @@ export default function Home() {
       event_date: newEventDate,
       host_id: newHost || null,
       created_by: userId,
+      is_closed: false,
+      closed_at: null,
     });
     if (error) return alert(error.message);
     setNewEventName("");
     await loadAll();
   }
 
+  async function closeEvent(eventId: string) {
+    if (!isAdmin) return;
+
+    const missingAttendance = profiles.filter(
+      (p) => !attendance.some((a) => a.event_id === eventId && a.profile_id === p.id)
+    );
+
+    if (missingAttendance.length) {
+      return alert(
+        `Antes de cerrar la juntada marcá la asistencia de todos. Falta: ${missingAttendance
+          .map((p) => p.name)
+          .join(", ")}`
+      );
+    }
+
+    if (!confirm("¿Cerrar la juntada? Desde ahora empiezan las 72 horas para completar los votos.")) return;
+
+    const { error } = await supabase
+      .from("events")
+      .update({ is_closed: true, closed_at: new Date().toISOString() })
+      .eq("id", eventId);
+
+    if (error) return alert(error.message);
+    await loadAll();
+  }
+
   async function setAttendanceFor(profileId: string, status: AttendanceStatus, reason = "") {
     if (!isAdmin || !selectedEventId) return;
+
+    const event = events.find((e) => e.id === selectedEventId);
+    if (event?.is_closed) return alert("La juntada ya está cerrada. La asistencia quedó bloqueada.");
 
     const penalty = status === "unjustified" ? UNJUSTIFIED_PENALTY : 0;
     const existing = attendance.find(
@@ -229,6 +300,7 @@ export default function Home() {
     if (!isAdmin || !selectedEventId || !description.trim()) {
       return alert("El Bonus/Malus necesita una descripción.");
     }
+
     const { error } = await supabase.from("point_adjustments").insert({
       event_id: selectedEventId,
       profile_id: profileId,
@@ -236,16 +308,33 @@ export default function Home() {
       description: description.trim(),
       created_by: userId,
     });
+
     if (error) return alert(error.message);
     await loadAll();
   }
 
   async function saveVote(targetId: string) {
     if (!userId || !selectedEventId || targetId === userId) return;
-    const att = attendance.find(
+
+    const event = events.find((e) => e.id === selectedEventId);
+    if (!event?.is_closed || !event.closed_at) {
+      return alert("La votación se habilita cuando el Admin cierra la juntada.");
+    }
+    if (isDeadlineExpired(event)) {
+      return alert("El plazo de 72 horas ya terminó.");
+    }
+
+    const myAttendance = attendance.find(
+      (x) => x.event_id === selectedEventId && x.profile_id === userId
+    );
+    if (myAttendance?.status !== "present") {
+      return alert("Solo los asistentes pueden votar en esta juntada.");
+    }
+
+    const targetAttendance = attendance.find(
       (x) => x.event_id === selectedEventId && x.profile_id === targetId
     );
-    if (att?.status && att.status !== "present") {
+    if (targetAttendance?.status !== "present") {
       return alert("No podés puntuar a alguien que faltó.");
     }
 
@@ -282,6 +371,53 @@ export default function Home() {
     await loadAll();
   }
 
+  function presentIdsForEvent(eventId: string) {
+    return attendance
+      .filter((a) => a.event_id === eventId && a.status === "present")
+      .map((a) => a.profile_id);
+  }
+
+  function votingProgress(eventId: string, voterId: string) {
+    const presentIds = presentIdsForEvent(eventId);
+    if (!presentIds.includes(voterId)) return { required: 0, completed: 0, done: true };
+    const targets = presentIds.filter((id) => id !== voterId);
+    const completedTargets = new Set(
+      votes
+        .filter((v) => v.event_id === eventId && v.voter_id === voterId && targets.includes(v.target_id))
+        .map((v) => v.target_id)
+    );
+    return {
+      required: targets.length,
+      completed: completedTargets.size,
+      done: completedTargets.size >= targets.length,
+    };
+  }
+
+  function missedVotingPenalty(profileId: string) {
+    return events.reduce((sum, e) => {
+      if (!e.is_closed || !e.closed_at || !isDeadlineExpired(e)) return sum;
+      const att = attendance.find((a) => a.event_id === e.id && a.profile_id === profileId);
+      if (att?.status !== "present") return sum;
+      const progress = votingProgress(e.id, profileId);
+      return sum + (progress.done ? 0 : MISSED_VOTING_PENALTY);
+    }, 0);
+  }
+
+  function eventCategoryAverages(eventId: string, targetId: string) {
+    const targetVotes = votes.filter((v) => v.event_id === eventId && v.target_id === targetId);
+    const result = {} as Record<CategoryKey, number>;
+    categories.forEach((c) => {
+      result[c.key] = trimmedAverage(targetVotes.map((v) => Number(v[c.key])));
+    });
+    return { values: result, voteCount: targetVotes.length };
+  }
+
+  function eventFinalScore(eventId: string, targetId: string) {
+    const { values, voteCount } = eventCategoryAverages(eventId, targetId);
+    if (!voteCount) return { score: 0, voteCount, values };
+    return { score: weightedScore(values), voteCount, values };
+  }
+
   const attendanceStats = useMemo(() => {
     return profiles.map((p) => {
       const rows = attendance.filter((a) => a.profile_id === p.id);
@@ -306,23 +442,65 @@ export default function Home() {
   const ranking = useMemo(() => {
     return profiles
       .map((p) => {
-        const targetVotes = votes.filter((v) => v.target_id === p.id);
-        const performance = targetVotes.reduce((sum, v) => sum + scoreVote(v), 0);
-        const voteCount = targetVotes.length;
-        const avg = voteCount ? performance / voteCount : 0;
+        const eventScores = events
+          .map((e) => eventFinalScore(e.id, p.id))
+          .filter((x) => x.voteCount > 0);
 
-        const penalty = attendance
+        const performance = eventScores.reduce((sum, x) => sum + x.score, 0);
+        const avg = eventScores.length ? performance / eventScores.length : 0;
+
+        const attendancePenalty = attendance
           .filter((a) => a.profile_id === p.id)
           .reduce((sum, a) => sum + Number(a.penalty || 0), 0);
+
+        const deadlinePenalty = missedVotingPenalty(p.id);
 
         const adjustment = adjustments
           .filter((a) => a.profile_id === p.id)
           .reduce((sum, a) => sum + Number(a.points || 0), 0);
 
-        return { ...p, total: performance + penalty + adjustment, avg, voteCount, penalty, adjustment };
+        return {
+          ...p,
+          total: performance + attendancePenalty + deadlinePenalty + adjustment,
+          avg,
+          scoredEvents: eventScores.length,
+          attendancePenalty,
+          deadlinePenalty,
+          adjustment,
+        };
       })
       .sort((a, b) => b.total - a.total || b.avg - a.avg);
-  }, [profiles, votes, attendance, adjustments]);
+  }, [profiles, votes, attendance, adjustments, events]);
+
+  const outliers = useMemo(() => {
+    const result: Array<{
+      vote: Vote;
+      categories: Array<{ key: CategoryKey; label: string; value: number; peerAverage: number }>;
+    }> = [];
+
+    votes.forEach((vote) => {
+      const sameTarget = votes.filter(
+        (v) =>
+          v.event_id === vote.event_id &&
+          v.target_id === vote.target_id &&
+          v.voter_id !== vote.voter_id
+      );
+
+      if (sameTarget.length < 2) return;
+
+      const flagged = categories
+        .map((c) => {
+          const peerAverage = average(sameTarget.map((v) => Number(v[c.key])));
+          const value = Number(vote[c.key]);
+          return { key: c.key, label: c.label, value, peerAverage };
+        })
+        .filter((x) => Math.abs(x.value - x.peerAverage) > OUTLIER_THRESHOLD);
+
+      if (flagged.length) result.push({ vote, categories: flagged });
+    });
+
+    return result;
+  }, [votes]);
 
   if (!sessionReady || loading) {
     return <main className="shell"><div className="card center">Cargando Liga de Juntadas…</div></main>;
@@ -370,6 +548,8 @@ export default function Home() {
   const sortedAttendance = [...attendanceStats].sort((a,b) => b.pct - a.pct || b.present - a.present);
   const sortedAbsences = [...attendanceStats].sort((a,b) => b.absentPct - a.absentPct || b.unjustified - a.unjustified);
   const boozeLeader = sortedAbsences[0];
+  const myProgress = currentEvent && userId ? votingProgress(currentEvent.id, userId) : null;
+  const currentDeadline = currentEvent ? deadlineFor(currentEvent) : null;
 
   return (
     <main className="shell">
@@ -400,7 +580,7 @@ export default function Home() {
             <div className="card">
               <div className="eyebrow">Líder actual</div>
               <div className="metric">{ranking[0] ? `${ranking[0].emoji} ${ranking[0].name}` : "—"}</div>
-              <div className="muted">{ranking[0] ? `${ranking[0].total.toFixed(0)} puntos` : "Todavía no hay puntos"}</div>
+              <div className="muted">{ranking[0] ? `${ranking[0].total.toFixed(1)} puntos` : "Todavía no hay puntos"}</div>
             </div>
             <div className="card">
               <div className="eyebrow">Juntadas</div>
@@ -418,9 +598,13 @@ export default function Home() {
                 <div className="grow">
                   <div className="person-name">{r.name}</div>
                   <div className="title">{r.title}</div>
-                  <div className="muted tiny">Promedio de votos {r.avg.toFixed(1)} · ajustes {r.adjustment >= 0 ? "+" : ""}{r.adjustment} · sanciones {r.penalty}</div>
+                  <div className="muted tiny">
+                    Prom. por fecha {r.avg.toFixed(1)} · Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
+                    {" · "}faltas {r.attendancePenalty}
+                    {r.deadlinePenalty !== 0 && <> · votos tarde {r.deadlinePenalty}</>}
+                  </div>
                 </div>
-                <div className="points">{r.total.toFixed(0)} pts</div>
+                <div className="points">{r.total.toFixed(1)} pts</div>
               </div>
             ))}
           </section>
@@ -458,7 +642,7 @@ export default function Home() {
           <div className="section-head">
             <div>
               <h2>📝 Puntuar juntada</h2>
-              <p className="muted">Cada usuario puntúa a los demás. No podés votarte a vos mismo.</p>
+              <p className="muted">La votación se habilita al cerrar la juntada y queda abierta durante 72 horas.</p>
             </div>
             <select value={selectedEventId} onChange={(e)=>setSelectedEventId(e.target.value)}>
               {events.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
@@ -467,49 +651,75 @@ export default function Home() {
 
           {!currentEvent && <div className="notice">Todavía no hay juntadas creadas.</div>}
 
-          {currentEvent && profiles.filter(p=>p.id!==userId).map((p)=>{
-            const att = attendance.find(a=>a.event_id===selectedEventId && a.profile_id===p.id);
-            const existing = votes.find(v=>v.event_id===selectedEventId && v.voter_id===userId && v.target_id===p.id);
-            const draft = voteDrafts[p.id] ?? existing ?? defaultVote;
-            const absent = att && att.status !== "present";
+          {currentEvent && (
+            <>
+              {!currentEvent.is_closed && (
+                <div className="notice">⏳ Esta juntada todavía está abierta. El Admin debe cerrarla para comenzar la votación.</div>
+              )}
 
-            return (
-              <div className={`vote-card ${absent ? "disabled" : ""}`} key={p.id}>
-                <div className="identity-line">
-                  <div className="avatar">{p.emoji}</div>
-                  <div><strong>{p.name}</strong><small>{p.title}</small></div>
-                  {existing && <span className="saved">✓ Voto guardado</span>}
-                </div>
-
-                {absent ? (
-                  <div className="absence-label">🚫 No asistió · {att.status === "justified" ? "justificada" : "sin justificar"}</div>
-                ) : (
-                  <>
-                    <div className="category-list">
-                      {categories.map(c=>(
-                        <div className="category" key={c.key}>
-                          <div className="cat-icon">{c.icon}</div>
-                          <div className="grow"><strong>{c.label}</strong><small>{c.sub}</small></div>
-                          <div className="stepper">
-                            <button onClick={()=>{
-                              const next = Math.max(1, Number((draft as any)[c.key])-1);
-                              setVoteDrafts(s=>({...s,[p.id]:{...draft,[c.key]:next}}));
-                            }}>−</button>
-                            <span>{(draft as any)[c.key]}</span>
-                            <button onClick={()=>{
-                              const next = Math.min(10, Number((draft as any)[c.key])+1);
-                              setVoteDrafts(s=>({...s,[p.id]:{...draft,[c.key]:next}}));
-                            }}>+</button>
-                          </div>
-                        </div>
-                      ))}
+              {currentEvent.is_closed && currentDeadline && (
+                <div className={isDeadlineExpired(currentEvent) ? "danger-box" : "deadline-box"}>
+                  {isDeadlineExpired(currentEvent)
+                    ? `⛔ El plazo terminó el ${formatDateTime(currentDeadline.toISOString())}.`
+                    : `⏰ Tenés hasta el ${formatDateTime(currentDeadline.toISOString())} para completar todos tus votos.`}
+                  {myProgress && myProgress.required > 0 && (
+                    <div className="tiny" style={{marginTop: 5}}>
+                      Progreso: {myProgress.completed}/{myProgress.required} votos completos.
                     </div>
-                    <button className="primary" onClick={()=>saveVote(p.id)}>Guardar puntaje de {p.name}</button>
-                  </>
-                )}
-              </div>
-            );
-          })}
+                  )}
+                </div>
+              )}
+
+              {profiles.filter(p=>p.id!==userId).map((p)=>{
+                const att = attendance.find(a=>a.event_id===selectedEventId && a.profile_id===p.id);
+                const existing = votes.find(v=>v.event_id===selectedEventId && v.voter_id===userId && v.target_id===p.id);
+                const draft = voteDrafts[p.id] ?? existing ?? defaultVote;
+                const absent = att?.status !== "present";
+                const disabled = !currentEvent.is_closed || isDeadlineExpired(currentEvent) || absent;
+
+                return (
+                  <div className={`vote-card ${disabled ? "disabled" : ""}`} key={p.id}>
+                    <div className="identity-line">
+                      <div className="avatar">{p.emoji}</div>
+                      <div><strong>{p.name}</strong><small>{p.title}</small></div>
+                      {existing && <span className="saved">✓ Voto guardado</span>}
+                    </div>
+
+                    {absent ? (
+                      <div className="absence-label">🚫 No asistió a esta juntada.</div>
+                    ) : !currentEvent.is_closed ? (
+                      <div className="notice">Esperando que el Admin cierre la juntada.</div>
+                    ) : isDeadlineExpired(currentEvent) ? (
+                      <div className="absence-label">⛔ Plazo de votación vencido.</div>
+                    ) : (
+                      <>
+                        <div className="category-list">
+                          {categories.map(c=>(
+                            <div className="category" key={c.key}>
+                              <div className="cat-icon">{c.icon}</div>
+                              <div className="grow"><strong>{c.label}</strong><small>{c.sub} · {(c.weight*100).toFixed(0)}%</small></div>
+                              <div className="stepper">
+                                <button onClick={()=>{
+                                  const next = Math.max(1, Number((draft as any)[c.key])-1);
+                                  setVoteDrafts(s=>({...s,[p.id]:{...draft,[c.key]:next}}));
+                                }}>−</button>
+                                <span>{(draft as any)[c.key]}</span>
+                                <button onClick={()=>{
+                                  const next = Math.min(10, Number((draft as any)[c.key])+1);
+                                  setVoteDrafts(s=>({...s,[p.id]:{...draft,[c.key]:next}}));
+                                }}>+</button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        <button className="primary" onClick={()=>saveVote(p.id)}>Guardar puntaje de {p.name}</button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          )}
         </section>
       )}
 
@@ -554,11 +764,30 @@ export default function Home() {
 
           <section className="card">
             <div className="section-head">
-              <div><h2>📋 Asistencias y Bonus/Malus</h2><p className="muted">Solo el Admin puede modificar esta sección.</p></div>
+              <div>
+                <h2>📋 Asistencia, Bonus/Malus y cierre</h2>
+                <p className="muted">Marcá la asistencia de todos. Al cerrar la fecha empieza el plazo de 72 horas.</p>
+              </div>
               <select value={selectedEventId} onChange={(e)=>setSelectedEventId(e.target.value)}>
                 {events.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
               </select>
             </div>
+
+            {currentEvent && (
+              <div className="event-status">
+                <div>
+                  <strong>{currentEvent.is_closed ? "🔒 Juntada cerrada" : "🟢 Juntada abierta"}</strong>
+                  {currentEvent.closed_at && (
+                    <small>
+                      Cerrada: {formatDateTime(currentEvent.closed_at)} · vence votación: {formatDateTime(deadlineFor(currentEvent)!.toISOString())}
+                    </small>
+                  )}
+                </div>
+                {!currentEvent.is_closed && (
+                  <button className="close-event-btn" onClick={()=>closeEvent(currentEvent.id)}>🔒 Cerrar juntada e iniciar 72 h</button>
+                )}
+              </div>
+            )}
 
             {profiles.map(p=>(
               <AdminPerson
@@ -568,8 +797,44 @@ export default function Home() {
                 adjustments={adjustments.filter(a=>a.event_id===selectedEventId && a.profile_id===p.id)}
                 onAttendance={setAttendanceFor}
                 onAdjustment={addAdjustment}
+                attendanceLocked={!!currentEvent?.is_closed}
               />
             ))}
+          </section>
+
+          <section className="card">
+            <h2>🔎 Detalle de votaciones</h2>
+            <p className="muted">Visible solo para el Admin. Podés ver quién puntuó a quién y cómo.</p>
+            <VoteDetails
+              eventId={selectedEventId}
+              votes={votes}
+              profiles={profiles}
+            />
+          </section>
+
+          <section className="card">
+            <h2>⚠️ Votos a revisar</h2>
+            <p className="muted">Se marca un voto cuando alguna categoría queda a más de {OUTLIER_THRESHOLD} puntos del promedio de los demás votantes. No se anula: el promedio recortado protege el puntaje final.</p>
+            {outliers.filter(o=>o.vote.event_id===selectedEventId).length === 0 ? (
+              <div className="notice">No hay votos atípicos detectados en esta fecha.</div>
+            ) : (
+              <div className="outlier-list">
+                {outliers.filter(o=>o.vote.event_id===selectedEventId).map((o)=>{
+                  const voter = profiles.find(p=>p.id===o.vote.voter_id);
+                  const target = profiles.find(p=>p.id===o.vote.target_id);
+                  return (
+                    <div className="outlier-card" key={o.vote.id}>
+                      <strong>{voter?.emoji} {voter?.name} → {target?.emoji} {target?.name}</strong>
+                      {o.categories.map(c=>(
+                        <div className="tiny" key={c.key}>
+                          ⚠️ {c.label}: puso <b>{c.value}</b> · promedio del resto {c.peerAverage.toFixed(1)}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           <section className="card">
@@ -590,9 +855,21 @@ export default function Home() {
           {events.map(e=>{
             const rows = attendance.filter(a=>a.event_id===e.id && a.status!=="present");
             const ads = adjustments.filter(a=>a.event_id===e.id);
+            const overdue = profiles.filter((p)=>{
+              if (!e.is_closed || !e.closed_at || !isDeadlineExpired(e)) return false;
+              const att = attendance.find(a=>a.event_id===e.id && a.profile_id===p.id);
+              return att?.status === "present" && !votingProgress(e.id,p.id).done;
+            });
+
             return (
               <div className="history-event" key={e.id}>
-                <div><strong>{e.name}</strong><div className="muted">{formatDate(e.event_date)}</div></div>
+                <div>
+                  <strong>{e.name}</strong>
+                  <div className="muted">
+                    {formatDate(e.event_date)}
+                    {e.is_closed && e.closed_at ? ` · 🔒 cerrada ${formatDateTime(e.closed_at)}` : " · 🟢 abierta"}
+                  </div>
+                </div>
                 {rows.map(a=>{
                   const p=profiles.find(x=>x.id===a.profile_id);
                   return <div className="history-line" key={a.id}>{a.status==="justified"?"🟡":"🔴"} {p?.emoji} {p?.name}: {a.reason || "Sin motivo"} {a.penalty ? `(${a.penalty} pts)` : ""}</div>
@@ -601,15 +878,18 @@ export default function Home() {
                   const p=profiles.find(x=>x.id===a.profile_id);
                   return <div className="history-line" key={a.id}>⚡ {p?.emoji} {p?.name}: {a.points>0?"+":""}{a.points} · {a.description}</div>
                 })}
+                {overdue.map(p=>(
+                  <div className="history-line deadline-penalty" key={`deadline-${e.id}-${p.id}`}>
+                    ⏰ {p.emoji} {p.name}: no completó todos los votos en 72 h ({MISSED_VOTING_PENALTY} pts)
+                  </div>
+                ))}
               </div>
             );
           })}
         </section>
       )}
 
-      {tab === "rules" && (
-        <Rules />
-      )}
+      {tab === "rules" && <Rules />}
 
       {tab === "profile" && me && (
         <section className="card profile-editor">
@@ -635,12 +915,14 @@ function AdminPerson({
   adjustments,
   onAttendance,
   onAdjustment,
+  attendanceLocked,
 }: {
   profile: Profile;
   attendance?: Attendance;
   adjustments: Adjustment[];
   onAttendance: (id:string,status:AttendanceStatus,reason?:string)=>Promise<void>;
   onAdjustment: (id:string,points:number,description:string)=>Promise<void>;
+  attendanceLocked: boolean;
 }) {
   const [reason,setReason] = useState(attendance?.reason ?? "");
   const [points,setPoints] = useState(0);
@@ -656,15 +938,15 @@ function AdminPerson({
       </div>
 
       <div className="attendance-buttons">
-        <button className={attendance?.status==="present"?"present active":"present"} onClick={()=>onAttendance(profile.id,"present","")}>✅ Asistió</button>
-        <button className={attendance?.status==="justified"?"justified active":"justified"} onClick={()=>onAttendance(profile.id,"justified",reason)}>🟡 Justificada</button>
-        <button className={attendance?.status==="unjustified"?"unjustified active":"unjustified"} onClick={()=>onAttendance(profile.id,"unjustified",reason)}>🔴 Sin justificar</button>
+        <button disabled={attendanceLocked} className={attendance?.status==="present"?"present active":"present"} onClick={()=>onAttendance(profile.id,"present","")}>✅ Asistió</button>
+        <button disabled={attendanceLocked} className={attendance?.status==="justified"?"justified active":"justified"} onClick={()=>onAttendance(profile.id,"justified",reason)}>🟡 Justificada</button>
+        <button disabled={attendanceLocked} className={attendance?.status==="unjustified"?"unjustified active":"unjustified"} onClick={()=>onAttendance(profile.id,"unjustified",reason)}>🔴 Sin justificar</button>
       </div>
 
       {attendance?.status && attendance.status!=="present" && (
         <div className="reason-row">
-          <input value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo de la inasistencia..." />
-          <button className="secondary" onClick={()=>onAttendance(profile.id,attendance.status,reason)}>Guardar motivo</button>
+          <input disabled={attendanceLocked} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo de la inasistencia..." />
+          <button disabled={attendanceLocked} className="secondary" onClick={()=>onAttendance(profile.id,attendance.status,reason)}>Guardar motivo</button>
           {attendance.status==="unjustified" && <span className="penalty-chip">−10 pts obligatorio</span>}
         </div>
       )}
@@ -688,6 +970,51 @@ function AdminPerson({
           {adjustments.map(a=><span key={a.id} className="adjustment-pill">{a.points>0?"+":""}{a.points} · {a.description}</span>)}
         </div>
       )}
+    </div>
+  );
+}
+
+function VoteDetails({
+  eventId,
+  votes,
+  profiles,
+}: {
+  eventId: string;
+  votes: Vote[];
+  profiles: Profile[];
+}) {
+  const eventVotes = votes.filter(v=>v.event_id===eventId);
+
+  if (!eventVotes.length) return <div className="notice">Todavía no hay votos cargados en esta fecha.</div>;
+
+  return (
+    <div className="vote-detail-list">
+      {eventVotes.map(v=>{
+        const voter=profiles.find(p=>p.id===v.voter_id);
+        const target=profiles.find(p=>p.id===v.target_id);
+        const score=weightedScore({
+          collaboration:v.collaboration,
+          cleaning:v.cleaning,
+          behavior:v.behavior,
+          attitude:v.attitude,
+        });
+        return (
+          <div className="vote-detail-card" key={v.id}>
+            <div className="vote-detail-title">
+              <strong>{voter?.emoji} {voter?.name}</strong>
+              <span>→</span>
+              <strong>{target?.emoji} {target?.name}</strong>
+              <b>{score.toFixed(1)}</b>
+            </div>
+            <div className="vote-detail-scores">
+              <span>🛒 {v.collaboration}</span>
+              <span>🧹 {v.cleaning}</span>
+              <span>🤝 {v.behavior}</span>
+              <span>🎉 {v.attitude}</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -721,7 +1048,7 @@ function Rules() {
     <>
       <section className="card">
         <h2>📜 Reglas de puntuación</h2>
-        <p className="muted">La idea es premiar al que suma en la juntada y castigar las ausencias sin justificar. El puntaje de cada voto va de 1 a 10 por categoría y se transforma a una escala de 0 a 100 según estos pesos.</p>
+        <p className="muted">Cada asistente puntúa a los demás asistentes de 1 a 10. El resultado de la fecha se calcula por categoría y después se aplican los pesos.</p>
         <div className="rules-grid">
           <div className="rule-card"><span>🛒</span><div><strong>Colaboración</strong><small>Compras, organización, traer cosas, dar una mano.</small></div><b>30%</b></div>
           <div className="rule-card"><span>🧹</span><div><strong>Limpieza</strong><small>Ordenar, lavar, levantar y ayudar al final.</small></div><b>30%</b></div>
@@ -731,20 +1058,41 @@ function Rules() {
       </section>
 
       <section className="card">
-        <h2>📅 Asistencia y sanciones</h2>
+        <h2>🛡️ Control de votos</h2>
         <div className="rule-lines">
-          <div><span>✅</span><div><strong>Asistió</strong><small>Puede recibir votos normalmente.</small></div></div>
-          <div><span>🟡</span><div><strong>Falta justificada</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
-          <div><span>🔴</span><div><strong>Falta sin justificar</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
-          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Se suma o resta aparte del voto. Solo el Admin puede asignarlo y siempre lleva una descripción.</small></div></div>
+          <div><span>✂️</span><div><strong>Promedio recortado</strong><small>Con 5 o más votos recibidos se elimina la nota más alta y la más baja de cada categoría antes de calcular el promedio.</small></div></div>
+          <div><span>⚠️</span><div><strong>Voto atípico</strong><small>Si una nota queda a más de 3 puntos del promedio de los demás, el Admin la ve marcada para revisión. No se elimina automáticamente.</small></div></div>
+          <div><span>🙅</span><div><strong>Sin auto-voto</strong><small>Nadie puede puntuarse a sí mismo y solo los asistentes pueden votar.</small></div></div>
         </div>
       </section>
 
       <section className="card">
-        <h2>🧮 Ejemplo</h2>
-        <p className="muted">Si alguien recibe 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud:</p>
-        <div className="formula">8×3 + 9×3 + 7×2 + 10×2 = <strong>85 puntos</strong></div>
-        <p className="muted tiny">Después se agregan los Bonus/Malus y las penalizaciones por faltas sin justificar.</p>
+        <h2>⏰ Cierre y plazo para votar</h2>
+        <div className="rule-lines">
+          <div><span>🔒</span><div><strong>Cierre de la juntada</strong><small>El Admin confirma asistencias y cierra la fecha. Desde ese momento comienza el plazo de votación.</small></div></div>
+          <div><span>3️⃣</span><div><strong>72 horas</strong><small>Cada asistente tiene 3 días para puntuar a todos los demás asistentes.</small></div></div>
+          <div><span>−5</span><div><strong>Votación incompleta</strong><small>Si al vencer las 72 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
+          <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 72 horas los votos de esa fecha quedan bloqueados.</small></div></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>📅 Asistencia y sanciones</h2>
+        <div className="rule-lines">
+          <div><span>✅</span><div><strong>Asistió</strong><small>Puede recibir y emitir votos normalmente.</small></div></div>
+          <div><span>🟡</span><div><strong>Falta justificada</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
+          <div><span>🔴</span><div><strong>Falta sin justificar</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
+          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Se suma o resta aparte. Solo el Admin puede asignarlo y siempre lleva una descripción.</small></div></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>🧮 Cómo sale el puntaje</h2>
+        <div className="formula">
+          <strong>30%</strong> Colaboración + <strong>30%</strong> Limpieza + <strong>20%</strong> Comportamiento + <strong>20%</strong> Actitud
+        </div>
+        <p className="muted">Ejemplo: 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud = <strong>85 puntos</strong>.</p>
+        <p className="muted tiny">El ranking suma el puntaje final de cada fecha y luego aplica Bonus/Malus, faltas sin justificar y penalizaciones por no completar la votación en plazo.</p>
       </section>
     </>
   );
