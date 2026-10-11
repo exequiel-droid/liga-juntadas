@@ -143,6 +143,7 @@ export default function Home() {
   const [authMessage, setAuthMessage] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
+  const editDateInputRef = useRef<HTMLInputElement>(null);
 
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
@@ -897,7 +898,26 @@ export default function Home() {
                           </div>
                           <div>
                             <label>Fecha</label>
-                            <input type="date" value={editEventDate} onChange={(x)=>setEditEventDate(x.target.value)} />
+                            <div className="date-wrap">
+                              <input
+                                ref={editDateInputRef}
+                                type="date"
+                                value={editEventDate}
+                                onChange={(x)=>setEditEventDate(x.target.value)}
+                                onClick={() => editDateInputRef.current?.showPicker?.()}
+                              />
+                              <button
+                                type="button"
+                                className="calendar-btn"
+                                onClick={() => {
+                                  const el = editDateInputRef.current;
+                                  if (!el) return;
+                                  if (typeof el.showPicker === "function") el.showPicker();
+                                  else el.focus();
+                                }}
+                                aria-label="Abrir calendario"
+                              >📅</button>
+                            </div>
                           </div>
                           <div>
                             <label>Anfitrión</label>
