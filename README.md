@@ -82,3 +82,49 @@ La penalización se calcula dinámicamente al cargar la app:
 5. si falta al menos un voto, se aplican −5 puntos una sola vez para esa fecha.
 
 No hace falta ningún cron, servidor pago ni automatización externa.
+
+
+## v4 — Registro sin confirmación por email
+
+La app sigue usando **email + contraseña**, pero está preparada para trabajar sin confirmación por correo.
+
+### Paso obligatorio en Supabase
+
+En tu proyecto:
+
+1. `Authentication`
+2. `Providers`
+3. `Email`
+4. Desactivá **Confirm email** / **Email confirmations**
+5. Guardá los cambios.
+
+Con eso:
+- el usuario se registra con email y contraseña;
+- Supabase crea la sesión directamente;
+- no se envía correo de confirmación;
+- evitás rebotes de emails por cuentas de prueba o direcciones mal escritas.
+
+### Importante
+
+No hace falta ejecutar SQL nuevo para esta v4.
+
+Solo reemplazá:
+
+```text
+app/page.tsx
+README.md
+```
+
+y después:
+
+```bash
+npm.cmd run dev
+```
+
+Si todo funciona:
+
+```bash
+git add .
+git commit -m "Registro sin confirmacion por email"
+git push
+```

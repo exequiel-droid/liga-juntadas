@@ -210,12 +210,21 @@ export default function Home() {
     if (!email || !password) return setAuthMessage("Completá email y contraseña.");
 
     if (authMode === "signup") {
-      const { error } = await supabase.auth.signUp({ email, password });
-      setAuthMessage(
-        error
-          ? error.message
-          : "Cuenta creada. Si Supabase pide confirmación por email, confirmala y después iniciá sesión."
-      );
+      const { data, error } = await supabase.auth.signUp({ email, password });
+
+      if (error) {
+        setAuthMessage(error.message);
+        return;
+      }
+
+      // Con "Confirm email" desactivado en Supabase, el registro crea sesión inmediatamente.
+      // Si por configuración del proyecto no hubiera sesión, mostramos un aviso genérico
+      // sin pedirle al usuario que confirme ningún correo.
+      if (!data.session) {
+        setAuthMessage("Cuenta creada. Probá iniciar sesión con el mismo email y contraseña.");
+      } else {
+        setAuthMessage("");
+      }
     } else {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) setAuthMessage(error.message);
