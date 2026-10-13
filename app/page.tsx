@@ -241,6 +241,10 @@ export default function Home() {
   const [selectedSeasonId, setSelectedSeasonId] = useState("");
   const [newSeasonName, setNewSeasonName] = useState("");
   const [newSeasonEmoji, setNewSeasonEmoji] = useState("🏆");
+  const [historySeasonId, setHistorySeasonId] = useState("");
+  const [bonusHistoryProfileFilter, setBonusHistoryProfileFilter] = useState("all");
+  const [bonusHistorySeasonFilter, setBonusHistorySeasonFilter] = useState("all");
+
 
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
@@ -1140,6 +1144,39 @@ export default function Home() {
   const myProgress = currentEvent && userId ? votingProgress(currentEvent.id, userId) : null;
   const currentDeadline = currentEvent ? deadlineFor(currentEvent) : null;
 
+  const bonusMalusHistory = adjustments
+    .map((adjustment) => {
+      const profile = profiles.find((p) => p.id === adjustment.profile_id);
+      const event = events.find((e) => e.id === adjustment.event_id);
+      const season = seasons.find((s) => s.id === event?.season_id);
+
+      return {
+        ...adjustment,
+        profileName: profile?.name ?? "Jugador",
+        profileEmoji: profile?.emoji ?? "👤",
+        eventName: event?.name ?? "Juntada eliminada",
+        eventDate: event?.event_date ?? null,
+        seasonId: season?.id ?? null,
+        seasonName: season ? `${season.emoji} ${season.name}` : "Sin temporada",
+      };
+    })
+    .filter(
+      (item) =>
+        bonusHistoryProfileFilter === "all" ||
+        item.profile_id === bonusHistoryProfileFilter
+    )
+    .filter(
+      (item) =>
+        bonusHistorySeasonFilter === "all" ||
+        item.seasonId === bonusHistorySeasonFilter
+    )
+    .sort((a, b) => {
+      const aTime = a.eventDate ? new Date(`${a.eventDate}T12:00:00`).getTime() : 0;
+      const bTime = b.eventDate ? new Date(`${b.eventDate}T12:00:00`).getTime() : 0;
+      return bTime - aTime;
+    });
+
+
   const selectedHistorySeason =
     seasons.find((season) => season.id === historySeasonId) ??
     activeSeason ??
@@ -1164,7 +1201,7 @@ export default function Home() {
       const categoryAverages = Object.fromEntries(
         categories.map((category) => {
           const validValues = seasonEventScores
-            .map((score) => score.categoryScores?.[category.key])
+            .map((score) => score.values?.[category.key])
             .filter((value): value is number => typeof value === "number");
 
           const avg = validValues.length
@@ -2087,7 +2124,7 @@ export default function Home() {
                         <div className="season-category-grid">
                           {categories.map((category) => (
                             <div key={category.key}>
-                              <span>{category.emoji}</span>
+                              <span>{category.icon}</span>
                               <small>{category.label}</small>
                               <strong>
                                 {formatRankingScore(player.categoryAverages[category.key] || 0)}

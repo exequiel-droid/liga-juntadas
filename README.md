@@ -1291,3 +1291,49 @@ Antes del push:
 ```bash
 npm.cmd run build
 ```
+
+
+## v11.5 — Corrección de build de Historial
+
+Se corrigieron los errores TypeScript reportados por Vercel en v11.4:
+
+- se agregaron los estados de selección de temporada e historial Bonus/Malus;
+- los promedios por categoría usan `eventFinalScore().values`;
+- las categorías usan `icon`;
+- se definió `bonusMalusHistory` dentro del componente principal.
+
+Se mantiene:
+
+- Historial de temporada en curso y temporadas anteriores;
+- detalle por jugador;
+- promedios por categoría;
+- faltas y penalizaciones;
+- Bonus/Malus;
+- formato visible sobre 100 con un decimal (`81.7`, `74.2`, etc.).
+
+No requiere SQL nuevo.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+```
+
+`globals.css` puede quedar como el de v11.4.
+
+Luego:
+
+```bash
+npm.cmd run build
+```
+
+Si compila:
+
+```bash
+git add .
+git commit -m "Corregir build historial de temporadas"
+git push
+```
