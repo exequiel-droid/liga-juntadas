@@ -1170,38 +1170,57 @@ npm.cmd run build
 ```
 
 
-## v11.2 — Registro histórico de Bonus / Malus
+## v11.3 — Consolidación de ranking + historial Bonus/Malus
 
-Se agregó una sección de consulta para ver todos los Bonus/Malus cargados.
+Esta versión corrige el build de v11.2 y consolida los cambios anteriores.
 
-Cada registro muestra:
+### Ranking visible sobre 100
 
-- jugador;
-- valor positivo o negativo;
-- descripción/motivo;
-- juntada relacionada;
-- temporada;
-- fecha de la juntada;
-- fecha/hora de carga del ajuste.
+La lógica interna continúa en 0–10, pero la interfaz muestra:
 
-También incluye filtros por:
+```text
+8,15 -> 81.5
+```
+
+Sanciones:
+
+```text
+No votar en 48 h       -10.0
+Falta no justificable   -7.0
+```
+
+### Registro Bonus/Malus
+
+Ahora está dentro de la pestaña **Historial**, debajo del historial de temporadas.
+
+Permite filtrar por:
 
 - jugador;
 - temporada.
 
-Ejemplo:
+Cada registro muestra:
 
-```text
-⚡ Exe
-❄️ Invierno '26 · Juntada 4
-+5
-Compró todo y organizó
+- jugador;
+- temporada;
+- juntada;
+- fecha;
+- valor;
+- descripción.
 
-🔻 Pagis
-❄️ Invierno '26 · Juntada 5
--3
-No ayudó a limpiar
-```
+No utiliza `created_at`, porque la estructura actual de `point_adjustments` no lo expone en el frontend.
+
+### Reglas
+
+Se rehizo el componente de Reglas para eliminar JSX mal anidado y textos antiguos.
+
+Queda explicado:
+
+- Promedio general;
+- Promedio de ranking;
+- Bonus/Malus / puntos ajustados;
+- penalización de -10.0 por no votar;
+- penalización de -7.0 por falta no justificable;
+- temporadas.
 
 ### Publicación
 
@@ -1213,7 +1232,7 @@ app/globals.css
 README.md
 ```
 
-No requiere SQL nuevo siempre que la tabla de ajustes ya tenga los campos actuales utilizados por la app.
+No requiere SQL nuevo respecto de v11.
 
 Antes del push:
 

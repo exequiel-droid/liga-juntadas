@@ -1136,31 +1136,6 @@ export default function Home() {
   const myProgress = currentEvent && userId ? votingProgress(currentEvent.id, userId) : null;
   const currentDeadline = currentEvent ? deadlineFor(currentEvent) : null;
 
-  const bonusMalusHistory = adjustments
-    .map((a) => {
-      const profile = profiles.find((p) => p.id === a.profile_id);
-      const event = events.find((e) => e.id === a.event_id);
-      const season = seasons.find((s) => s.id === event?.season_id);
-
-      return {
-        ...a,
-        profileName: profile?.name ?? "Jugador",
-        profileEmoji: profile?.emoji ?? "👤",
-        eventName: event?.name ?? "Sin juntada",
-        eventDate: event?.date ?? null,
-        seasonId: season?.id ?? null,
-        seasonName: season ? `${season.emoji} ${season.name}` : "Sin temporada",
-      };
-    })
-    .filter((a) => bonusHistoryProfileFilter === "all" || a.profile_id === bonusHistoryProfileFilter)
-    .filter((a) => bonusHistorySeasonFilter === "all" || a.seasonId === bonusHistorySeasonFilter)
-    .sort((a, b) => {
-      const ad = a.created_at ? new Date(a.created_at).getTime() : 0;
-      const bd = b.created_at ? new Date(b.created_at).getTime() : 0;
-      return bd - ad;
-    });
-
-
   return (
     <main className="shell">
       <header className="topbar">
@@ -2178,101 +2153,6 @@ function Rules() {
           <div><span>🔴</span><div><strong>Falta no justificable</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
           <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Solo el Admin puede asignarlos y siempre llevan una descripción. Se acumulan durante la temporada, pero para el ranking se normalizan dividiendo el total de ajustes por la cantidad de juntadas computadas. Ejemplo: +5 y −10 en 5 juntadas = −1 punto sobre el ranking final. No modifican los promedios por categoría ni el porcentaje de asistencia.</small></div></div>
         </div>
-      </section>
-
-
-      <section className="card">
-        <div className="section-head">
-          <div>
-            <h2>⚡ Registro de Bonus / Malus</h2>
-            <p className="muted">
-              Historial completo de ajustes manuales. Podés filtrar por jugador y temporada para ver
-              quién recibió cada Bonus/Malus, el valor asignado y el motivo.
-            </p>
-          </div>
-        </div>
-
-        <div className="bonus-history-filters">
-          <label>
-            Jugador
-            <select
-              value={bonusHistoryProfileFilter}
-              onChange={(e) => setBonusHistoryProfileFilter(e.target.value)}
-            >
-              <option value="all">Todos</option>
-              {profiles.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.emoji} {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Temporada
-            <select
-              value={bonusHistorySeasonFilter}
-              onChange={(e) => setBonusHistorySeasonFilter(e.target.value)}
-            >
-              <option value="all">Todas</option>
-              {seasons.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.emoji} {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {bonusMalusHistory.length === 0 ? (
-          <div className="empty-state">
-            Todavía no hay Bonus/Malus para los filtros seleccionados.
-          </div>
-        ) : (
-          <div className="bonus-history-list">
-            {bonusMalusHistory.map((item) => (
-              <div className="bonus-history-row" key={item.id}>
-                <div className="bonus-history-main">
-                  <div className="bonus-history-user">
-                    <span className="bonus-history-avatar">{item.profileEmoji}</span>
-                    <div>
-                      <strong>{item.profileName}</strong>
-                      <small>
-                        {item.seasonName}
-                        {item.eventName ? ` · ${item.eventName}` : ""}
-                      </small>
-                    </div>
-                  </div>
-
-                  <div
-                    className={`bonus-history-points ${
-                      Number(item.points) >= 0 ? "positive" : "negative"
-                    }`}
-                  >
-                    {Number(item.points) >= 0 ? "+" : ""}
-                    {Number(item.points)}
-                  </div>
-                </div>
-
-                <div className="bonus-history-reason">
-                  {item.description || "Sin descripción"}
-                </div>
-
-                <div className="bonus-history-meta muted tiny">
-                  {item.eventDate
-                    ? new Date(`${item.eventDate}T12:00:00`).toLocaleDateString("es-AR")
-                    : "Sin fecha"}
-                  {item.created_at && (
-                    <>
-                      {" · cargado "}
-                      {new Date(item.created_at).toLocaleString("es-AR")}
-                    </>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       <section className="card">
