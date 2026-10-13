@@ -750,3 +750,15 @@ Orden, cuidado del espacio y limpieza durante la juntada
 Además, la descripción de cada categoría queda visualmente separada del nombre con un espacio/margen para mejorar la lectura.
 
 No requiere SQL nuevo.
+
+
+## v9.4 — Ranking oculto hasta completar votos
+
+- El Admin siempre puede ver el ranking.
+- Un usuario presente con votos pendientes no ve promedios ni puntajes actualizados.
+- La pantalla bloqueada indica en qué juntadas debe votar y cuántos votos le faltan.
+- Al completar todos sus votos obligatorios, el ranking se desbloquea automáticamente.
+- Una ausencia no genera obligación de votar ni bloqueo.
+- Cuando vence la ventana de votación, esa fecha deja de bloquear visualmente el ranking y se aplican las penalizaciones existentes cuando corresponda.
+
+No requiere SQL nuevo. Se sigue usando `supabase/update_v9.sql`.

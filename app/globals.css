@@ -393,3 +393,35 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   font-size:11px;
   line-height:1.35;
 }
+
+
+/* v9.4: ocultar ranking hasta completar votos */
+.ranking-locked{
+  border:1px solid rgba(124,92,255,.30);
+  background:linear-gradient(180deg,rgba(124,92,255,.08),rgba(255,255,255,.015));
+  border-radius:18px;
+  padding:20px;
+  text-align:center;
+}
+.ranking-lock-icon{font-size:32px;margin-bottom:7px}
+.ranking-locked h3{margin:0 0 7px}
+.ranking-locked p{
+  max-width:620px;
+  margin:0 auto 16px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.5;
+}
+.ranking-lock-events{display:grid;gap:8px;max-width:620px;margin:0 auto;text-align:left}
+.ranking-lock-event{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:10px 12px;border-radius:13px;background:#101620;border:1px solid var(--line);
+}
+.ranking-lock-event div{display:flex;flex-direction:column;gap:2px}
+.ranking-lock-event small{color:var(--muted)}
+.ranking-lock-event > span{
+  color:var(--amber);font-size:10px;font-weight:900;
+  border:1px solid rgba(255,181,71,.28);background:rgba(255,181,71,.10);
+  border-radius:999px;padding:5px 8px;
+}
+.ranking-lock-note{margin-top:12px;color:var(--muted);font-size:11px}

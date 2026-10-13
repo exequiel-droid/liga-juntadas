@@ -835,6 +835,47 @@ export default function Home() {
       .sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
   }, [events, now]);
 
+  const rankingLockedForMe = useMemo(() => {
+    if (isAdmin || !userId) {
+      return { locked: false, events: [] as EventRow[] };
+    }
+
+    const blockingEvents = events.filter((event) => {
+      if (!event.is_closed || !event.closed_at) return false;
+      if (isDeadlineExpired(event)) return false;
+
+      const myAttendance = attendance.find(
+        (a) => a.event_id === event.id && a.profile_id === userId
+      );
+
+      if (myAttendance?.status !== "present") return false;
+
+      const presentIds = attendance
+        .filter((a) => a.event_id === event.id && a.status === "present")
+        .map((a) => a.profile_id);
+
+      const requiredTargets = presentIds.filter((id) => id !== userId);
+
+      const completedTargets = new Set(
+        votes
+          .filter(
+            (v) =>
+              v.event_id === event.id &&
+              v.voter_id === userId &&
+              requiredTargets.includes(v.target_id)
+          )
+          .map((v) => v.target_id)
+      );
+
+      return completedTargets.size < requiredTargets.length;
+    });
+
+    return {
+      locked: blockingEvents.length > 0,
+      events: blockingEvents,
+    };
+  }, [isAdmin, userId, events, attendance, votes, now]);
+
   const pendingVotingByEvent = useMemo(() => {
     return events
       .filter((e) => e.is_closed && e.closed_at)
@@ -1024,30 +1065,79 @@ export default function Home() {
 
           <section className="card">
             <h2>🏆 Tabla general · Promedio general</h2>
-            {ranking.map((r, i) => (
-              <div className="ranking-row" key={r.id}>
-                <div className="place">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
-                <div className="avatar">{r.emoji}</div>
-                <div className="grow">
-                  <div className="person-name">{r.name}</div>
-                  <div className="title">{r.title}</div>
-                  <div className="muted tiny">
-                    Promedio general {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
-                    {" · "}{r.scoredEvents} juntadas puntuadas
-                  </div>
-                  <div className="muted tiny">
-                    Puntos ajustados {r.total.toFixed(1)}
-                    {" · "}Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
-                    {r.attendancePenalty !== 0 && <> · faltas {r.attendancePenalty}</>}
-                    {r.deadlinePenalty !== 0 && <> · votos tarde {r.deadlinePenalty}</>}
-                  </div>
+
+            {rankingLockedForMe.locked ? (
+              <div className="ranking-locked">
+                <div className="ranking-lock-icon">🔒</div>
+                <h3>Completá tus votos para ver el ranking actualizado</h3>
+                <p>
+                  Para evitar que los resultados condicionen la votación, los promedios y puntos
+                  quedan ocultos hasta que completes todos los votos que te corresponden.
+                </p>
+
+                <div className="ranking-lock-events">
+                  {rankingLockedForMe.events.map((event) => {
+                    const presentIds = attendance
+                      .filter((a) => a.event_id === event.id && a.status === "present")
+                      .map((a) => a.profile_id);
+
+                    const requiredTargets = presentIds.filter((id) => id !== userId);
+                    const completedTargets = new Set(
+                      votes
+                        .filter(
+                          (v) =>
+                            v.event_id === event.id &&
+                            v.voter_id === userId &&
+                            requiredTargets.includes(v.target_id)
+                        )
+                        .map((v) => v.target_id)
+                    );
+                    const missing = Math.max(requiredTargets.length - completedTargets.size, 0);
+
+                    return (
+                      <div className="ranking-lock-event" key={event.id}>
+                        <div>
+                          <strong>🗳️ {event.name}</strong>
+                          <small>
+                            Te {missing === 1 ? "falta" : "faltan"} {missing} {missing === 1 ? "voto" : "votos"}
+                          </small>
+                        </div>
+                        <span>Pendiente</span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="points">
-                  <strong>{r.performanceAvg.toFixed(1)}</strong>
-                  <small>prom.</small>
+
+                <div className="ranking-lock-note">
+                  👑 El Admin puede ver el ranking en todo momento.
                 </div>
               </div>
-            ))}
+            ) : (
+              ranking.map((r, i) => (
+                <div className="ranking-row" key={r.id}>
+                  <div className="place">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
+                  <div className="avatar">{r.emoji}</div>
+                  <div className="grow">
+                    <div className="person-name">{r.name}</div>
+                    <div className="title">{r.title}</div>
+                    <div className="muted tiny">
+                      Promedio general {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
+                      {" · "}{r.scoredEvents} juntadas puntuadas
+                    </div>
+                    <div className="muted tiny">
+                      Puntos ajustados {r.total.toFixed(1)}
+                      {" · "}Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
+                      {r.attendancePenalty !== 0 && <> · faltas {r.attendancePenalty}</>}
+                      {r.deadlinePenalty !== 0 && <> · votos tarde {r.deadlinePenalty}</>}
+                    </div>
+                  </div>
+                  <div className="points">
+                    <strong>{r.performanceAvg.toFixed(1)}</strong>
+                    <small>prom.</small>
+                  </div>
+                </div>
+              ))
+            )}
           </section>
 
           <section className="attendance-grid">
@@ -1820,6 +1910,19 @@ function Rules() {
               <small>
                 El ranking principal se ordena por el promedio general de rendimiento de las juntadas
                 donde el jugador recibió votos válidos. Faltar una fecha no agrega un cero al promedio.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🔒</span>
+            <div>
+              <strong>Visibilidad del ranking</strong>
+              <small>
+                Para evitar que los resultados condicionen los votos, un usuario presente con votos
+                pendientes no puede ver las actualizaciones de promedios ni puntajes. El ranking se
+                desbloquea automáticamente cuando completa todos sus votos obligatorios de las
+                juntadas cuya votación siga abierta. El Admin siempre puede verlo.
               </small>
             </div>
           </div>
