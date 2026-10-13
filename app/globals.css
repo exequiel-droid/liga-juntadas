@@ -276,3 +276,81 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   text-transform:uppercase;
   letter-spacing:.05em;
 }
+
+
+/* v9: escala descriptiva de 5 niveles */
+.rating-choice-group{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:6px;
+  width:100%;
+  margin-top:8px;
+}
+.rating-choice{
+  min-height:54px;
+  border:1px solid var(--line);
+  background:#111722;
+  color:var(--text);
+  border-radius:12px;
+  padding:7px 5px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  font-size:10px;
+  font-weight:800;
+  cursor:pointer;
+  transition:.15s ease;
+}
+.rating-choice:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.22)}
+.rating-choice.selected{
+  border-color:rgba(124,92,255,.8);
+  background:rgba(124,92,255,.16);
+  box-shadow:0 0 0 1px rgba(124,92,255,.20) inset;
+}
+.rating-emoji{font-size:20px;line-height:1}
+.saved-vote-summary{
+  margin:10px 0 12px;
+  padding:10px;
+  border:1px solid var(--line);
+  background:rgba(255,255,255,.025);
+  border-radius:14px;
+}
+.saved-vote-summary-title{
+  font-size:11px;
+  font-weight:900;
+  color:var(--muted);
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  margin-bottom:7px;
+}
+.saved-vote-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+.saved-vote-item{
+  display:flex;
+  justify-content:space-between;
+  gap:8px;
+  align-items:center;
+  padding:7px 8px;
+  border-radius:10px;
+  background:#0f141d;
+  font-size:11px;
+}
+.saved-vote-item span{color:var(--muted)}
+.saved-vote-item strong{text-align:right}
+.vote-detail-scores span{white-space:normal}
+@media(max-width:760px){
+  .rating-choice-group{grid-template-columns:repeat(5,1fr);gap:4px}
+  .rating-choice{padding:6px 2px;font-size:9px;min-height:52px}
+  .rating-emoji{font-size:18px}
+  .saved-vote-grid{grid-template-columns:1fr}
+}
+
+
+/* v9.1: reglamento consolidado */
+.rule-lines > div{
+  align-items:flex-start;
+}
+.rule-lines > div > span{
+  flex:0 0 auto;
+}

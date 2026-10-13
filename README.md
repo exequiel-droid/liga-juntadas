@@ -494,3 +494,210 @@ Esta versión conserva todo lo incluido hasta v8.2:
 - puntos como dato secundario.
 
 No requiere SQL adicional si ya ejecutaste `update_v7.sql` y `update_v8_1.sql`.
+
+
+## v8.4 — Corrección de promedios en 0
+
+El problema era que el ranking filtraba exclusivamente:
+
+```text
+review_status = approved
+```
+
+Los votos históricos creados antes de v7 podían no tener ese campo informado, por lo que quedaban fuera del cálculo.
+
+### Corrección
+
+Ahora:
+- `approved` computa;
+- `null` / votos históricos sin estado también computan como aprobados;
+- `pending` no computa;
+- `rejected` no computa.
+
+### SQL recomendado
+
+Ejecutar:
+
+```text
+supabase/update_v8_4.sql
+```
+
+Este script:
+- crea los campos de revisión si faltan;
+- marca como `approved` todos los votos históricos sin estado;
+- deja `approved` como default;
+- muestra al final un conteo por estado para verificar.
+
+Después del SQL, deberías obtener algo parecido a:
+
+```text
+approved | 45
+pending  | 2
+rejected | 1
+```
+
+Los números dependen de tus votos reales.
+
+### Actualización
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+```
+
+y agregá:
+
+```text
+supabase/update_v8_4.sql
+```
+
+Antes de subir:
+
+```bash
+npm.cmd run build
+```
+
+Luego:
+
+```bash
+git add .
+git commit -m "Corregir promedios de votos historicos"
+git push
+```
+
+
+## v9 — Votación descriptiva de 5 niveles + reparación histórica
+
+La votación deja de usar el selector numérico 1–10.
+
+### Nueva escala
+
+| Opción | Valor interno |
+|---|---:|
+| 😡 Muy mala | 2 |
+| 😕 Mala | 4 |
+| 😐 Regular | 6 |
+| 🙂 Buena | 8 |
+| 🤩 Excelente | 10 |
+
+El usuario solo ve y elige las descripciones. Los números quedan por debajo para conservar los cálculos existentes.
+
+### Votos históricos
+
+Los votos viejos que tengan valores 1–10 continúan funcionando. Al mostrarlos se usa la descripción más cercana, pero su valor original no se modifica.
+
+Además esta versión incluye la corrección de `review_status` de v8.4.
+
+### Voto guardado
+
+Después de guardar se muestra un resumen con las cuatro categorías, por ejemplo:
+
+```text
+🛒 Colaboración     🙂 Buena
+🧹 Limpieza         🤩 Excelente
+🤝 Comportamiento  😐 Regular
+🎉 Actitud          🙂 Buena
+```
+
+El Admin también ve estas descripciones en el detalle y en la cola de votos dudosos.
+
+### SQL
+
+Como todavía no subiste v8.4, ejecutá directamente:
+
+```text
+supabase/update_v9.sql
+```
+
+Este SQL está consolidado e incluye:
+- reparación de votos históricos;
+- estados `approved / pending / rejected`;
+- detección de votos dudosos;
+- patrón extremo adaptado a la nueva escala `2–10`;
+- restricción para que solo asistentes presentes voten a asistentes presentes.
+
+No hace falta ejecutar `update_v8_4.sql` por separado.
+
+### Antes de publicar
+
+```bash
+npm.cmd run build
+```
+
+Luego:
+
+```bash
+git add .
+git commit -m "Votacion descriptiva de cinco niveles"
+git push
+```
+
+
+## v9.1 — Reglamento completo dentro de la app
+
+La pestaña **Reglas** ahora documenta todo el sistema vigente:
+
+- escala de 5 niveles;
+- pesos de categorías;
+- promedio general;
+- orden del ranking;
+- puntos ajustados;
+- asistencia;
+- Justificable / No justificable;
+- penalización −10;
+- quiénes pueden votar;
+- ventana de 72 horas;
+- timer de cierre;
+- votaciones pendientes;
+- penalización −5 por votación incompleta;
+- votos atípicos;
+- votos dudosos;
+- aprobación/rechazo del Admin;
+- promedio recortado;
+- Bonus/Malus;
+- votos históricos;
+- cierre de juntadas.
+
+Esta versión incluye todos los cambios de v9. No necesitás subir v9 antes.
+
+### SQL
+
+Si todavía no ejecutaste la migración anterior, ejecutá directamente:
+
+```text
+supabase/update_v9.sql
+```
+
+No hay un SQL nuevo específico para v9.1.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+Conservá:
+
+```text
+supabase/update_v9.sql
+```
+
+Probá:
+
+```bash
+npm.cmd run build
+```
+
+Y luego:
+
+```bash
+git add .
+git commit -m "Reglamento completo y votacion descriptiva"
+git push
+```

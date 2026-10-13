@@ -80,12 +80,37 @@ const categories: Array<{
   { key: "attitude", label: "Actitud", icon: "🎉", sub: "Predisposición y participación", weight: 0.20 },
 ];
 
+const ratingOptions = [
+  { value: 2, label: "Muy mala", emoji: "😡" },
+  { value: 4, label: "Mala", emoji: "😕" },
+  { value: 6, label: "Regular", emoji: "😐" },
+  { value: 8, label: "Buena", emoji: "🙂" },
+  { value: 10, label: "Excelente", emoji: "🤩" },
+] as const;
+
 const defaultVote = {
-  collaboration: 8,
-  cleaning: 8,
-  behavior: 8,
-  attitude: 8,
+  collaboration: 6,
+  cleaning: 6,
+  behavior: 6,
+  attitude: 6,
 };
+
+function ratingMeta(value: number) {
+  const exact = ratingOptions.find((option) => option.value === Number(value));
+  if (exact) return exact;
+
+  // Compatibilidad visual con votos históricos 1–10.
+  return ratingOptions.reduce((closest, option) =>
+    Math.abs(option.value - Number(value)) < Math.abs(closest.value - Number(value))
+      ? option
+      : closest
+  );
+}
+
+function ratingLabel(value: number) {
+  const meta = ratingMeta(value);
+  return `${meta.emoji} ${meta.label}`;
+}
 
 function formatDate(value: string) {
   if (!value) return "";
@@ -152,7 +177,13 @@ function trimmedAverage(nums: number[]) {
 
 function suspiciousPattern(values: Record<CategoryKey, number>) {
   const nums = categories.map((c) => Number(values[c.key]));
-  return nums.every((n) => n === 1) || nums.every((n) => n === 10);
+  return nums.every((n) => n === 2) || nums.every((n) => n === 10);
+}
+
+function voteCountsForRanking(vote: Vote) {
+  // Compatibilidad con votos históricos:
+  // antes de v7 no existía review_status, así que null/undefined se considera aprobado.
+  return !vote.review_status || vote.review_status === "approved";
 }
 
 export default function Home() {
@@ -609,7 +640,7 @@ export default function Home() {
       (v) =>
         v.event_id === eventId &&
         v.target_id === targetId &&
-        v.review_status === "approved"
+        voteCountsForRanking(v)
     );
     const result = {} as Record<CategoryKey, number>;
     categories.forEach((c) => {
@@ -1083,6 +1114,20 @@ export default function Home() {
                       )}
                     </div>
 
+                    {existing && (
+                      <div className="saved-vote-summary">
+                        <div className="saved-vote-summary-title">Tu voto guardado</div>
+                        <div className="saved-vote-grid">
+                          {categories.map((c) => (
+                            <div className="saved-vote-item" key={c.key}>
+                              <span>{c.icon} {c.label}</span>
+                              <strong>{ratingLabel(Number(existing[c.key]))}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {voterAbsent ? (
                       <div className="absence-label">🚫 No podés votar porque no estuviste presente en esta juntada.</div>
                     ) : absent ? (
@@ -1098,16 +1143,27 @@ export default function Home() {
                             <div className="category" key={c.key}>
                               <div className="cat-icon">{c.icon}</div>
                               <div className="grow"><strong>{c.label}</strong><small>{c.sub} · {(c.weight*100).toFixed(0)}%</small></div>
-                              <div className="stepper">
-                                <button onClick={()=>{
-                                  const next = Math.max(1, Number((draft as any)[c.key])-1);
-                                  setVoteDrafts(s=>({...s,[p.id]:{...draft,[c.key]:next}}));
-                                }}>−</button>
-                                <span>{(draft as any)[c.key]}</span>
-                                <button onClick={()=>{
-                                  const next = Math.min(10, Number((draft as any)[c.key])+1);
-                                  setVoteDrafts(s=>({...s,[p.id]:{...draft,[c.key]:next}}));
-                                }}>+</button>
+                              <div className="rating-choice-group">
+                                {ratingOptions.map((option) => {
+                                  const selected = ratingMeta(Number((draft as any)[c.key])).value === option.value;
+                                  return (
+                                    <button
+                                      type="button"
+                                      key={option.value}
+                                      className={`rating-choice ${selected ? "selected" : ""}`}
+                                      onClick={() =>
+                                        setVoteDrafts((s) => ({
+                                          ...s,
+                                          [p.id]: { ...draft, [c.key]: option.value },
+                                        }))
+                                      }
+                                      aria-pressed={selected}
+                                    >
+                                      <span className="rating-emoji">{option.emoji}</span>
+                                      <span>{option.label}</span>
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           ))}
@@ -1129,7 +1185,7 @@ export default function Home() {
                               <div className="tiny warning-details">
                                 {reviewCheck.details.map((d) => (
                                   <div key={d.label}>
-                                    {d.label}: pusiste <b>{d.value}</b> · promedio del resto <b>{d.peerAverage.toFixed(1)}</b>
+                                    {d.label}: pusiste <b>{ratingLabel(d.value)}</b> · promedio del resto <b>{d.peerAverage.toFixed(1)}</b>
                                   </div>
                                 ))}
                               </div>
@@ -1355,10 +1411,10 @@ export default function Home() {
                           <span className="review-badge pending">⏳ Pendiente</span>
                         </div>
                         <div className="vote-detail-scores">
-                          <span>🛒 {v.collaboration}</span>
-                          <span>🧹 {v.cleaning}</span>
-                          <span>🤝 {v.behavior}</span>
-                          <span>🎉 {v.attitude}</span>
+                          <span>🛒 {ratingLabel(v.collaboration)}</span>
+                          <span>🧹 {ratingLabel(v.cleaning)}</span>
+                          <span>🤝 {ratingLabel(v.behavior)}</span>
+                          <span>🎉 {ratingLabel(v.attitude)}</span>
                         </div>
                         <div className="review-reason">
                           <span>💬 Motivo:</span> {v.review_comment || "Sin explicación"}
@@ -1575,13 +1631,13 @@ function VoteDetails({
               }>
                 {v.review_status === "pending" ? "Pendiente" : v.review_status === "rejected" ? "Rechazado" : "Aprobado"}
               </span>
-              <b>{v.review_status === "approved" ? score.toFixed(1) : "—"}</b>
+              <b>{voteCountsForRanking(v) ? score.toFixed(1) : "—"}</b>
             </div>
             <div className="vote-detail-scores">
-              <span>🛒 {v.collaboration}</span>
-              <span>🧹 {v.cleaning}</span>
-              <span>🤝 {v.behavior}</span>
-              <span>🎉 {v.attitude}</span>
+              <span>🛒 {ratingLabel(v.collaboration)}</span>
+              <span>🧹 {ratingLabel(v.cleaning)}</span>
+              <span>🤝 {ratingLabel(v.behavior)}</span>
+              <span>🎉 {ratingLabel(v.attitude)}</span>
             </div>
           </div>
         );
@@ -1632,8 +1688,9 @@ function Rules() {
         <h2>🛡️ Control de votos</h2>
         <div className="rule-lines">
           <div><span>✂️</span><div><strong>Promedio recortado</strong><small>Con 5 o más votos recibidos se elimina la nota más alta y la más baja de cada categoría antes de calcular el promedio.</small></div></div>
+          <div><span>🎚️</span><div><strong>Escala de votación</strong><small>En cada categoría elegís una de cinco opciones: 😡 Muy mala = 2, 😕 Mala = 4, 😐 Regular = 6, 🙂 Buena = 8 y 🤩 Excelente = 10. Los números se usan internamente para calcular promedios y ranking.</small></div></div>
           <div><span>⚠️</span><div><strong>Voto atípico</strong><small>Si una nota queda a más de 3 puntos del promedio de los demás, queda marcada para control.</small></div></div>
-          <div><span>🔴</span><div><strong>Voto dudoso</strong><small>Si una nota se aleja más de 4 puntos del promedio del resto, o si el voto tiene un patrón extremo como todo 1 o todo 10, exige una explicación y queda pendiente de aprobación del Admin. Mientras esté pendiente no entra en el ranking.</small></div></div>
+          <div><span>🔴</span><div><strong>Voto dudoso</strong><small>Si una nota se aleja más de 4 puntos del promedio del resto, o si el voto tiene un patrón extremo como “Muy mala” en todo o “Excelente” en todo, exige una explicación y queda pendiente de aprobación del Admin. Mientras esté pendiente no entra en el ranking.</small></div></div>
           <div><span>👑</span><div><strong>Revisión del Admin</strong><small>El Admin puede aprobar o rechazar un voto dudoso. Aprobado: computa normalmente. Rechazado: queda registrado pero no suma al puntaje.</small></div></div>
           <div><span>🙅</span><div><strong>Sin auto-voto</strong><small>Nadie puede puntuarse a sí mismo y solo los asistentes pueden votar.</small></div></div>
         </div>
@@ -1657,6 +1714,228 @@ function Rules() {
           <div><span>🟡</span><div><strong>Falta justificable</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
           <div><span>🔴</span><div><strong>Falta no justificable</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
           <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Solo el Admin puede asignarlos y siempre llevan una descripción. Se acumulan durante la temporada, pero para el ranking se normalizan dividiendo el total de ajustes por la cantidad de juntadas computadas. Ejemplo: +5 y −10 en 5 juntadas = −1 punto sobre el ranking final. No modifican los promedios por categoría ni el porcentaje de asistencia.</small></div></div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2>📜 Reglamento completo</h2>
+        <p className="muted">
+          Estas son las reglas que usa la Liga de Juntadas para asistencia, votaciones, ranking y sanciones.
+        </p>
+
+        <div className="rule-lines">
+          <div>
+            <span>🎚️</span>
+            <div>
+              <strong>Escala de votación</strong>
+              <small>
+                Cada categoría se vota con cinco opciones: 😡 Muy mala = 2, 😕 Mala = 4,
+                😐 Regular = 6, 🙂 Buena = 8 y 🤩 Excelente = 10. Los números se usan internamente
+                para hacer los cálculos.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🛒</span>
+            <div>
+              <strong>Categorías y pesos</strong>
+              <small>
+                Colaboración 30%, Limpieza 30%, Comportamiento 20% y Actitud 20%.
+                El puntaje de cada juntada sale de esa combinación ponderada.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>📊</span>
+            <div>
+              <strong>Promedio general</strong>
+              <small>
+                El ranking principal se ordena por el promedio general de rendimiento de las juntadas
+                donde el jugador recibió votos válidos. Faltar una fecha no agrega un cero al promedio.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🏆</span>
+            <div>
+              <strong>Orden del ranking</strong>
+              <small>
+                Se ordena de mayor a menor promedio general. Si hay empate, primero se usa el porcentaje
+                de asistencia y luego los puntos ajustados como desempate.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>➕</span>
+            <div>
+              <strong>Puntos ajustados</strong>
+              <small>
+                Los puntos ajustados son un dato adicional. Reflejan asistencia, Bonus/Malus,
+                faltas no justificables y penalizaciones por no votar, pero no determinan
+                directamente la posición principal.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>✅</span>
+            <div>
+              <strong>Asistencia</strong>
+              <small>
+                Cada persona queda marcada como Presente, Justificable o No justificable.
+                El porcentaje de asistencia se calcula sobre las juntadas donde ya tiene estado cargado.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🟡</span>
+            <div>
+              <strong>Ausencia justificable</strong>
+              <small>
+                Cuenta como ausencia para el porcentaje de asistencia, pero no descuenta puntos.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🔴</span>
+            <div>
+              <strong>Ausencia no justificable</strong>
+              <small>
+                Cuenta como ausencia y aplica una penalización obligatoria de −10 puntos.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🚫</span>
+            <div>
+              <strong>Quiénes pueden votar</strong>
+              <small>
+                Solo pueden votar quienes estuvieron presentes en esa juntada y únicamente pueden
+                puntuar a otros asistentes presentes. Nadie puede votarse a sí mismo.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>⏳</span>
+            <div>
+              <strong>Plazo de votación</strong>
+              <small>
+                Una vez que el Admin cierra la juntada, se habilita una ventana de 72 horas para votar.
+                En el inicio del ranking aparece un timer por cada juntada con votación abierta.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>−5</span>
+            <div>
+              <strong>Votación incompleta</strong>
+              <small>
+                Si un asistente no completa todos los votos obligatorios dentro de las 72 horas,
+                recibe una penalización de −5 puntos para esa juntada.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🗳️</span>
+            <div>
+              <strong>Votaciones pendientes</strong>
+              <small>
+                En el inicio del ranking se muestra quién falta votar, en qué juntada y cuántos votos
+                le faltan. Si el plazo venció, también se indica la penalización.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>⚠️</span>
+            <div>
+              <strong>Voto atípico</strong>
+              <small>
+                Si una nota se aleja más de 3 puntos del promedio del resto, queda marcada para control
+                del Admin, aunque puede guardarse.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🔴</span>
+            <div>
+              <strong>Voto dudoso</strong>
+              <small>
+                Si una nota se aleja más de 4 puntos del promedio del resto, con suficientes votos
+                comparables, o si el voto tiene un patrón extremo como “Muy mala” en todo o
+                “Excelente” en todo, exige explicación y queda pendiente de aprobación.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>👑</span>
+            <div>
+              <strong>Revisión del Admin</strong>
+              <small>
+                Un voto dudoso pendiente no entra en el ranking. El Admin puede aprobarlo o rechazarlo.
+                Si se aprueba, computa normalmente. Si se rechaza, queda registrado pero no suma.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>✂️</span>
+            <div>
+              <strong>Promedio recortado</strong>
+              <small>
+                Cuando hay 5 o más votos válidos para una categoría de una persona en una juntada,
+                se elimina un valor mínimo y un valor máximo antes de calcular el promedio.
+                Esto reduce el efecto de votos extremos.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>⚡</span>
+            <div>
+              <strong>Bonus / Malus</strong>
+              <small>
+                Solo el Admin puede asignarlos y siempre llevan una descripción. Se acumulan durante
+                la temporada y forman parte de los puntos ajustados. No cambian el promedio general,
+                los promedios de categorías ni el porcentaje de asistencia.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🕘</span>
+            <div>
+              <strong>Votos históricos</strong>
+              <small>
+                Los votos anteriores al sistema de revisión siguen siendo válidos y se consideran
+                aprobados. Si tenían valores numéricos 1–10, se muestran con la descripción más cercana
+                sin modificar su valor original.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>🔒</span>
+            <div>
+              <strong>Cierre de juntada</strong>
+              <small>
+                El Admin puede cerrar una juntada únicamente cuando la asistencia de todos ya fue cargada.
+                Una juntada cerrada no se puede editar desde la interfaz mientras la votación está en curso.
+              </small>
+            </div>
+          </div>
         </div>
       </section>
 
