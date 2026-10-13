@@ -850,3 +850,127 @@ git add .
 git commit -m "Aplicar sanciones directas al promedio"
 git push
 ```
+
+
+## v9.7 — Corrección de constraint de ausencias
+
+La base todavía tenía el constraint antiguo:
+
+```text
+unjustified_penalty_required
+```
+
+que obligaba a guardar un `penalty` negativo cuando la ausencia era `unjustified`.
+
+La lógica actual ya no usa esa columna para sancionar. Ahora:
+
+- no votar en 48 h: `−0,5` directo al promedio de ranking;
+- ausencia no justificable: `−0,3` directo al promedio de ranking;
+- `attendance.penalty` queda en `0`.
+
+### SQL
+
+Podés ejecutar directamente:
+
+```text
+supabase/fix_v9_7_attendance.sql
+```
+
+y después volver a ejecutar:
+
+```text
+supabase/update_v9.sql
+```
+
+El `update_v9.sql` de esta versión ya incluye el arreglo.
+
+### Frontend
+
+También se corrigió una referencia vieja a `UNJUSTIFIED_PENALTY` que podía romper el build.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+supabase/update_v9.sql
+```
+
+y agregá:
+
+```text
+supabase/fix_v9_7_attendance.sql
+```
+
+Después:
+
+```bash
+npm.cmd run build
+```
+
+Y si compila:
+
+```bash
+git add .
+git commit -m "Corregir sanciones de asistencia"
+git push
+```
+
+
+## v9.8 — Corrección de build TypeScript
+
+Se corrigieron referencias antiguas que quedaron después de migrar las sanciones al promedio:
+
+- `UNJUSTIFIED_PENALTY` → `UNJUSTIFIED_AVG_PENALTY`
+- `MISSED_VOTING_PENALTY` → `MISSED_VOTING_AVG_PENALTY`
+- `total` → `rankingAverage`
+- `attendancePenalty` → `unjustifiedAbsenceAvgPenalty`
+- `deadlinePenalty` → `missedVotingAvgPenalty`
+
+La lógica vigente queda:
+
+- No votar dentro de 48 h: `−0,5` al promedio de ranking.
+- Ausencia no justificable: `−0,3` al promedio de ranking.
+- Ausencia justificable: sin penalización directa.
+- El ranking se ordena por `rankingAverage`.
+
+### SQL
+
+No hay un SQL adicional para esta corrección de TypeScript.
+
+Si todavía no ejecutaste la reparación de asistencia:
+
+```text
+supabase/fix_v9_7_attendance.sql
+```
+
+y luego:
+
+```text
+supabase/update_v9.sql
+```
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+```
+
+Antes de hacer push:
+
+```bash
+npm.cmd run build
+```
+
+Si compila:
+
+```bash
+git add .
+git commit -m "Corregir build de sanciones y ranking"
+git push
+```

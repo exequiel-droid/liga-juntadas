@@ -429,7 +429,7 @@ export default function Home() {
     const event = events.find((e) => e.id === selectedEventId);
     if (event?.is_closed) return alert("La juntada ya está cerrada. La asistencia quedó bloqueada.");
 
-    const penalty = status === "unjustified" ? UNJUSTIFIED_PENALTY : 0;
+    const penalty = 0;
     const existing = attendance.find(
       (x) => x.event_id === selectedEventId && x.profile_id === profileId
     );
@@ -1159,10 +1159,10 @@ export default function Home() {
                       {" · "}{r.scoredEvents} juntadas puntuadas
                     </div>
                     <div className="muted tiny">
-                      Puntos ajustados {r.total.toFixed(1)}
+                      Puntos ajustados {r.rankingAverage.toFixed(1)}
                       {" · "}Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
-                      {r.attendancePenalty !== 0 && <> · faltas {r.attendancePenalty}</>}
-                      {r.deadlinePenalty !== 0 && <> · votos tarde {r.deadlinePenalty}</>}
+                      {r.unjustifiedAbsenceCount > 0 && <> · ausencias no justificables {r.unjustifiedAbsenceAvgPenalty.toFixed(1)}</>}
+                      {r.missedVotingCount > 0 && <> · no votar {r.missedVotingAvgPenalty.toFixed(1)}</>}
                     </div>
                   </div>
                   <div className="points">
@@ -1180,7 +1180,7 @@ export default function Home() {
               {sortedAttendance.map((r,i)=>(
                 <div className="mini-row" key={r.id}>
                   <span>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</span>
-                  <span className="grow">{r.emoji} <strong>{r.name}</strong><small>{r.present}/{r.total} juntadas</small></span>
+                  <span className="grow">{r.emoji} <strong>{r.name}</strong><small>{r.present}/{r.rankingAverage} juntadas</small></span>
                   <strong>{r.pct.toFixed(0)}%</strong>
                 </div>
               ))}
@@ -1688,7 +1688,7 @@ export default function Home() {
                 })}
                 {overdue.map(p=>(
                   <div className="history-line deadline-penalty" key={`deadline-${e.id}-${p.id}`}>
-                    ⏰ {p.emoji} {p.name}: no completó todos los votos en 48 h ({MISSED_VOTING_PENALTY} pts)
+                    ⏰ {p.emoji} {p.name}: no completó todos los votos en 48 h ({MISSED_VOTING_AVG_PENALTY} pts)
                   </div>
                 ))}
               </div>
