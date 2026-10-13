@@ -689,7 +689,14 @@ export default function Home() {
           normalizedAdjustment,
         };
       })
-      .sort((a, b) => b.total - a.total || b.performanceAvg - a.performanceAvg);
+      // El ranking principal se define por el promedio general.
+      // En caso de empate, usamos asistencia y luego el puntaje ajustado como desempate.
+      .sort(
+        (a, b) =>
+          b.performanceAvg - a.performanceAvg ||
+          b.attendancePct - a.attendancePct ||
+          b.total - a.total
+      );
   }, [profiles, votes, attendance, adjustments, events]);
 
   const outliers = useMemo(() => {
@@ -859,7 +866,7 @@ export default function Home() {
             <div className="card">
               <div className="eyebrow">Líder actual</div>
               <div className="metric">{ranking[0] ? `${ranking[0].emoji} ${ranking[0].name}` : "—"}</div>
-              <div className="muted">{ranking[0] ? `${ranking[0].total.toFixed(1)} / 100` : "Todavía no hay puntos"}</div>
+              <div className="muted">{ranking[0] ? `${ranking[0].performanceAvg.toFixed(1)} promedio` : "Todavía no hay puntos"}</div>
             </div>
             <div className="card">
               <div className="eyebrow">Juntadas</div>
@@ -940,7 +947,7 @@ export default function Home() {
           </section>
 
           <section className="card">
-            <h2>🏆 Tabla general · Puntaje 0–100</h2>
+            <h2>🏆 Tabla general · Promedio general</h2>
             {ranking.map((r, i) => (
               <div className="ranking-row" key={r.id}>
                 <div className="place">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
@@ -949,17 +956,20 @@ export default function Home() {
                   <div className="person-name">{r.name}</div>
                   <div className="title">{r.title}</div>
                   <div className="muted tiny">
-                    Rendimiento {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
-                    {" · "}Base {r.baseScore.toFixed(1)}
-                    {" · "}Ajuste {r.normalizedAdjustment >= 0 ? "+" : ""}{r.normalizedAdjustment.toFixed(1)}
+                    Promedio general {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
+                    {" · "}{r.scoredEvents} juntadas puntuadas
                   </div>
                   <div className="muted tiny">
-                    {r.normalizationEvents} juntadas computadas · Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
+                    Puntos ajustados {r.total.toFixed(1)}
+                    {" · "}Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
                     {r.attendancePenalty !== 0 && <> · faltas {r.attendancePenalty}</>}
                     {r.deadlinePenalty !== 0 && <> · votos tarde {r.deadlinePenalty}</>}
                   </div>
                 </div>
-                <div className="points">{r.total.toFixed(1)}</div>
+                <div className="points">
+                  <strong>{r.performanceAvg.toFixed(1)}</strong>
+                  <small>prom.</small>
+                </div>
               </div>
             ))}
           </section>
@@ -1655,16 +1665,16 @@ function Rules() {
 
         <div className="formula" style={{marginTop: 12}}>
           <strong>Ranking de temporada:</strong><br />
-          <strong>85%</strong> rendimiento promedio + <strong>15%</strong> porcentaje de asistencia + <strong>ajustes normalizados</strong>
+          La posición se define por el <strong>promedio general de rendimiento</strong>.
         </div>
 
         <div className="rule-lines" style={{marginTop: 12}}>
-          <div><span>📊</span><div><strong>Rendimiento promedio</strong><small>Es el promedio de los puntajes de las juntadas donde participaste y recibiste votos válidos. Faltar una fecha no agrega un cero a este promedio.</small></div></div>
-          <div><span>✅</span><div><strong>Asistencia 15%</strong><small>La asistencia sigue importando, pero ya no genera una ventaja equivalente a sumar una juntada completa. Si asistís al 80% de las fechas, tu componente de asistencia vale 80.</small></div></div>
-          <div><span>➗</span><div><strong>Ajustes normalizados</strong><small>Bonus/Malus, faltas no justificables y penalizaciones por no votar se suman entre sí y luego se dividen por la cantidad de juntadas computadas. Así una sanción sigue afectando, pero no destruye la competitividad de toda la temporada.</small></div></div>
+          <div><span>📊</span><div><strong>Promedio general</strong><small>Es el promedio de los puntajes de las juntadas donde participaste y recibiste votos válidos. Este valor define la posición en el ranking. Faltar una fecha no agrega un cero al promedio.</small></div></div>
+          <div><span>🏆</span><div><strong>Orden de la tabla</strong><small>Se ordena de mayor a menor promedio general. Si dos jugadores tienen el mismo promedio, se usa primero el porcentaje de asistencia como desempate y luego los puntos ajustados.</small></div></div>
+          <div><span>➕</span><div><strong>Puntos como dato adicional</strong><small>El puntaje ajustado sigue mostrando el efecto de asistencia, Bonus/Malus, faltas no justificables y penalizaciones por no votar, pero ya no determina directamente la posición en la tabla.</small></div></div>
         </div>
 
-        <p className="muted tiny">El puntaje final queda limitado entre 0 y 100.</p>
+        <p className="muted tiny">Los puntos ajustados siguen en escala 0–100, pero son informativos. El ranking se define por el promedio general.</p>
       </section>
     </>
   );

@@ -255,3 +255,24 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
 .vote-card.disabled .primary{
   pointer-events:none;
 }
+
+
+/* v8.2: ranking ordenado por promedio general */
+.points{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  justify-content:center;
+  gap:1px;
+}
+.points strong{
+  font-size:20px;
+  line-height:1;
+}
+.points small{
+  color:var(--muted);
+  font-size:10px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+}

@@ -431,3 +431,51 @@ Para guardar un voto:
 - no puede votarse a sí mismo;
 - la juntada debe estar cerrada;
 - deben seguir vigentes las 72 horas de votación.
+
+
+## v8.2 — Ranking ordenado por promedio general
+
+El criterio principal del ranking ahora es:
+
+```text
+Promedio general de rendimiento
+```
+
+Se ordena de mayor a menor.
+
+### Desempates
+
+Si dos jugadores tienen exactamente el mismo promedio:
+
+1. mayor porcentaje de asistencia;
+2. mayor puntaje ajustado.
+
+### Qué pasa con los puntos
+
+El puntaje ajustado `0–100` sigue calculándose y se muestra como información adicional.
+
+Incluye el efecto de:
+- asistencia;
+- Bonus/Malus;
+- faltas no justificables;
+- penalizaciones por no completar la votación.
+
+Pero **ya no define la posición principal**.
+
+### Visual
+
+Cada fila muestra como número destacado:
+
+```text
+8.7
+PROM.
+```
+
+Y debajo se siguen mostrando:
+- asistencia;
+- cantidad de juntadas puntuadas;
+- puntos ajustados;
+- Bonus/Malus;
+- sanciones.
+
+No hace falta SQL nuevo.
