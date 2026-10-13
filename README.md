@@ -404,3 +404,30 @@ git add .
 git commit -m "Ranking promedio competitivo"
 git push
 ```
+
+
+## v8.1 — Solo votan quienes estuvieron presentes
+
+Ahora la restricción se aplica en dos niveles:
+
+### Interfaz
+- Si el usuario faltó, ve un aviso indicando que no puede votar esa juntada.
+- Todas las tarjetas de votación quedan bloqueadas.
+- Tampoco puede votar a una persona que haya faltado.
+
+### Supabase
+Ejecutar:
+
+```text
+supabase/update_v8_1.sql
+```
+
+Esto refuerza las políticas RLS para impedir que el control pueda saltearse desde el navegador.
+
+### Regla final
+Para guardar un voto:
+- el votante debe estar `present`;
+- la persona votada debe estar `present`;
+- no puede votarse a sí mismo;
+- la juntada debe estar cerrada;
+- deben seguir vigentes las 72 horas de votación.

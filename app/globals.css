@@ -245,3 +245,13 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   text-align:right;
   font-variant-numeric:tabular-nums;
 }
+
+
+/* v8.1: solo asistentes presentes pueden votar */
+.voting-blocked-notice{
+  margin-bottom:12px;
+}
+.vote-card.disabled .stepper button,
+.vote-card.disabled .primary{
+  pointer-events:none;
+}

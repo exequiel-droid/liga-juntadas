@@ -555,6 +555,16 @@ export default function Home() {
     return { level, details, peerCount: peerVotes.length };
   }
 
+  function currentUserWasPresent(eventId: string) {
+    if (!userId) return false;
+    return attendance.some(
+      (a) =>
+        a.event_id === eventId &&
+        a.profile_id === userId &&
+        a.status === "present"
+    );
+  }
+
   function presentIdsForEvent(eventId: string) {
     return attendance
       .filter((a) => a.event_id === eventId && a.status === "present")
@@ -998,6 +1008,12 @@ export default function Home() {
 
           {currentEvent && (
             <>
+              {!currentUserWasPresent(currentEvent.id) && (
+                <div className="danger-box voting-blocked-notice">
+                  🚫 No podés votar en <strong>{currentEvent.name}</strong> porque no figurás como presente en esa juntada.
+                </div>
+              )}
+
               {!currentEvent.is_closed && (
                 <div className="notice">⏳ Esta juntada todavía está abierta. El Admin debe cerrarla para comenzar la votación.</div>
               )}
@@ -1021,7 +1037,12 @@ export default function Home() {
                 const draft = voteDrafts[p.id] ?? existing ?? defaultVote;
                 const reviewCheck = classifyVoteDraft(p.id, draft as typeof defaultVote);
                 const absent = att?.status !== "present";
-                const disabled = !currentEvent.is_closed || isDeadlineExpired(currentEvent) || absent;
+                const voterAbsent = !currentUserWasPresent(currentEvent.id);
+                const disabled =
+                  !currentEvent.is_closed ||
+                  isDeadlineExpired(currentEvent) ||
+                  absent ||
+                  voterAbsent;
 
                 return (
                   <div className={`vote-card ${disabled ? "disabled" : ""}`} key={p.id}>
@@ -1045,8 +1066,10 @@ export default function Home() {
                       )}
                     </div>
 
-                    {absent ? (
-                      <div className="absence-label">🚫 No asistió a esta juntada.</div>
+                    {voterAbsent ? (
+                      <div className="absence-label">🚫 No podés votar porque no estuviste presente en esta juntada.</div>
+                    ) : absent ? (
+                      <div className="absence-label">🚫 No podés votar a esta persona porque no asistió a esta juntada.</div>
                     ) : !currentEvent.is_closed ? (
                       <div className="notice">Esperando que el Admin cierre la juntada.</div>
                     ) : isDeadlineExpired(currentEvent) ? (
@@ -1604,6 +1627,7 @@ function Rules() {
         <div className="rule-lines">
           <div><span>🔒</span><div><strong>Cierre de la juntada</strong><small>El Admin confirma asistencias y cierra la fecha. Desde ese momento comienza el plazo de votación.</small></div></div>
           <div><span>3️⃣</span><div><strong>72 horas</strong><small>Cada asistente tiene 3 días para puntuar a todos los demás asistentes.</small></div></div>
+          <div><span>🚫</span><div><strong>Quiénes pueden votar</strong><small>Solo pueden votar quienes estuvieron marcados como presentes en esa juntada. Además, únicamente pueden puntuar a otros asistentes presentes. Quien faltó no puede votar esa fecha.</small></div></div>
           <div><span>−5</span><div><strong>Votación incompleta</strong><small>Si al vencer las 72 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
           <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 72 horas los votos de esa fecha quedan bloqueados.</small></div></div>
         </div>
