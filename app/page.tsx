@@ -518,7 +518,14 @@ export default function Home() {
     await loadAll();
   }
 
-  function classifyVoteDraft(targetId: string, draft: typeof defaultVote) {
+  function classifyVoteDraft(
+    targetId: string,
+    draft: typeof defaultVote
+  ): {
+    level: "normal" | "atypical" | "suspicious";
+    details: Array<{ label: string; value: number; peerAverage: number; diff: number }>;
+    peerCount: number;
+  } {
     const peerVotes = votes.filter(
       (v) =>
         v.event_id === selectedEventId &&
@@ -542,8 +549,8 @@ export default function Home() {
 
         if (diff > SUSPICIOUS_THRESHOLD) {
           level = "suspicious";
-        } else if (diff > OUTLIER_THRESHOLD && level !== "suspicious") {
-          level = "atypical";
+        } else if (diff > OUTLIER_THRESHOLD) {
+          if (level === "normal") level = "atypical";
         }
       });
     }

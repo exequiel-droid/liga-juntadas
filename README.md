@@ -479,3 +479,18 @@ Y debajo se siguen mostrando:
 - sanciones.
 
 No hace falta SQL nuevo.
+
+
+## v8.3 — Corrección de build en Vercel
+
+Se corrigió un error de inferencia de TypeScript en la clasificación de votos `normal / atypical / suspicious` que hacía fallar `npm run build` en Vercel.
+
+Esta versión conserva todo lo incluido hasta v8.2:
+- revisión Admin de votos dudosos;
+- timers de votación;
+- pendientes de voto;
+- solo asistentes presentes pueden votar;
+- ranking ordenado por promedio general;
+- puntos como dato secundario.
+
+No requiere SQL adicional si ya ejecutaste `update_v7.sql` y `update_v8_1.sql`.
