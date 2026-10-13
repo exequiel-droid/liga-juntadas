@@ -237,3 +237,11 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   .review-card-head{align-items:flex-start;flex-direction:column}
   .review-actions button{flex:1}
 }
+
+
+/* v8: ranking promedio 0-100 */
+.points{
+  min-width:72px;
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+}

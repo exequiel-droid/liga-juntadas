@@ -635,11 +635,20 @@ export default function Home() {
           .map((e) => eventFinalScore(e.id, p.id))
           .filter((x) => x.voteCount > 0);
 
-        const performance = eventScores.reduce((sum, x) => sum + x.score, 0);
-        const avg = eventScores.length ? performance / eventScores.length : 0;
+        // Rendimiento: promedio 0-100 de las juntadas donde recibió votos válidos.
+        const performanceSum = eventScores.reduce((sum, x) => sum + x.score, 0);
+        const performanceAvg = eventScores.length ? performanceSum / eventScores.length : 0;
 
-        const attendancePenalty = attendance
-          .filter((a) => a.profile_id === p.id)
+        // Asistencia: porcentaje sobre todas las juntadas donde el Admin ya marcó su estado.
+        const attendanceRows = attendance.filter((a) => a.profile_id === p.id);
+        const attendedCount = attendanceRows.filter((a) => a.status === "present").length;
+        const attendancePct = attendanceRows.length
+          ? (attendedCount / attendanceRows.length) * 100
+          : 0;
+
+        // Penalizaciones y Bonus/Malus se normalizan para que una sola fecha
+        // no destruya el ranking de temporada.
+        const attendancePenalty = attendanceRows
           .reduce((sum, a) => sum + Number(a.penalty || 0), 0);
 
         const deadlinePenalty = missedVotingPenalty(p.id);
@@ -648,17 +657,29 @@ export default function Home() {
           .filter((a) => a.profile_id === p.id)
           .reduce((sum, a) => sum + Number(a.points || 0), 0);
 
+        const rawAdjustments = attendancePenalty + deadlinePenalty + adjustment;
+        const normalizationEvents = Math.max(attendanceRows.length, 1);
+        const normalizedAdjustment = rawAdjustments / normalizationEvents;
+
+        const baseScore = performanceAvg * 0.85 + attendancePct * 0.15;
+        const total = Math.max(0, Math.min(100, baseScore + normalizedAdjustment));
+
         return {
           ...p,
-          total: performance + attendancePenalty + deadlinePenalty + adjustment,
-          avg,
+          total,
+          baseScore,
+          performanceAvg,
+          attendancePct,
           scoredEvents: eventScores.length,
+          normalizationEvents,
           attendancePenalty,
           deadlinePenalty,
           adjustment,
+          rawAdjustments,
+          normalizedAdjustment,
         };
       })
-      .sort((a, b) => b.total - a.total || b.avg - a.avg);
+      .sort((a, b) => b.total - a.total || b.performanceAvg - a.performanceAvg);
   }, [profiles, votes, attendance, adjustments, events]);
 
   const outliers = useMemo(() => {
@@ -828,7 +849,7 @@ export default function Home() {
             <div className="card">
               <div className="eyebrow">Líder actual</div>
               <div className="metric">{ranking[0] ? `${ranking[0].emoji} ${ranking[0].name}` : "—"}</div>
-              <div className="muted">{ranking[0] ? `${ranking[0].total.toFixed(1)} puntos` : "Todavía no hay puntos"}</div>
+              <div className="muted">{ranking[0] ? `${ranking[0].total.toFixed(1)} / 100` : "Todavía no hay puntos"}</div>
             </div>
             <div className="card">
               <div className="eyebrow">Juntadas</div>
@@ -909,7 +930,7 @@ export default function Home() {
           </section>
 
           <section className="card">
-            <h2>🏆 Tabla general</h2>
+            <h2>🏆 Tabla general · Puntaje 0–100</h2>
             {ranking.map((r, i) => (
               <div className="ranking-row" key={r.id}>
                 <div className="place">{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</div>
@@ -918,12 +939,17 @@ export default function Home() {
                   <div className="person-name">{r.name}</div>
                   <div className="title">{r.title}</div>
                   <div className="muted tiny">
-                    Prom. por fecha {r.avg.toFixed(1)} · Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
-                    {" · "}faltas {r.attendancePenalty}
+                    Rendimiento {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
+                    {" · "}Base {r.baseScore.toFixed(1)}
+                    {" · "}Ajuste {r.normalizedAdjustment >= 0 ? "+" : ""}{r.normalizedAdjustment.toFixed(1)}
+                  </div>
+                  <div className="muted tiny">
+                    {r.normalizationEvents} juntadas computadas · Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
+                    {r.attendancePenalty !== 0 && <> · faltas {r.attendancePenalty}</>}
                     {r.deadlinePenalty !== 0 && <> · votos tarde {r.deadlinePenalty}</>}
                   </div>
                 </div>
-                <div className="points">{r.total.toFixed(1)} pts</div>
+                <div className="points">{r.total.toFixed(1)}</div>
               </div>
             ))}
           </section>
@@ -1589,17 +1615,32 @@ function Rules() {
           <div><span>✅</span><div><strong>Asistió</strong><small>Puede recibir y emitir votos normalmente.</small></div></div>
           <div><span>🟡</span><div><strong>Falta justificable</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
           <div><span>🔴</span><div><strong>Falta no justificable</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
-          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Solo el Admin puede asignarlos y siempre llevan una descripción. Se aplican directamente sobre el total acumulado: un +5 suma 5 puntos y un −5 resta 5 puntos. No modifican los promedios de Colaboración, Limpieza, Comportamiento o Actitud, ni los porcentajes de asistencia. Puede haber más de un Bonus/Malus en una misma juntada y se acumulan entre sí.</small></div></div>
+          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Solo el Admin puede asignarlos y siempre llevan una descripción. Se acumulan durante la temporada, pero para el ranking se normalizan dividiendo el total de ajustes por la cantidad de juntadas computadas. Ejemplo: +5 y −10 en 5 juntadas = −1 punto sobre el ranking final. No modifican los promedios por categoría ni el porcentaje de asistencia.</small></div></div>
         </div>
       </section>
 
       <section className="card">
         <h2>🧮 Cómo sale el puntaje</h2>
+
         <div className="formula">
+          <strong>Rendimiento de cada juntada:</strong><br />
           <strong>30%</strong> Colaboración + <strong>30%</strong> Limpieza + <strong>20%</strong> Comportamiento + <strong>20%</strong> Actitud
         </div>
-        <p className="muted">Ejemplo: 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud = <strong>85 puntos</strong>.</p>
-        <p className="muted tiny">El ranking suma el puntaje final de cada fecha y luego aplica Bonus/Malus, faltas no justificable y penalizaciones por no completar la votación en plazo.</p>
+
+        <p className="muted">Ejemplo de una fecha: 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud = <strong>85 puntos</strong>.</p>
+
+        <div className="formula" style={{marginTop: 12}}>
+          <strong>Ranking de temporada:</strong><br />
+          <strong>85%</strong> rendimiento promedio + <strong>15%</strong> porcentaje de asistencia + <strong>ajustes normalizados</strong>
+        </div>
+
+        <div className="rule-lines" style={{marginTop: 12}}>
+          <div><span>📊</span><div><strong>Rendimiento promedio</strong><small>Es el promedio de los puntajes de las juntadas donde participaste y recibiste votos válidos. Faltar una fecha no agrega un cero a este promedio.</small></div></div>
+          <div><span>✅</span><div><strong>Asistencia 15%</strong><small>La asistencia sigue importando, pero ya no genera una ventaja equivalente a sumar una juntada completa. Si asistís al 80% de las fechas, tu componente de asistencia vale 80.</small></div></div>
+          <div><span>➗</span><div><strong>Ajustes normalizados</strong><small>Bonus/Malus, faltas no justificables y penalizaciones por no votar se suman entre sí y luego se dividen por la cantidad de juntadas computadas. Así una sanción sigue afectando, pero no destruye la competitividad de toda la temporada.</small></div></div>
+        </div>
+
+        <p className="muted tiny">El puntaje final queda limitado entre 0 y 100.</p>
       </section>
     </>
   );

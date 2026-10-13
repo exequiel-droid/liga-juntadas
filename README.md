@@ -318,3 +318,89 @@ git add .
 git commit -m "Control de votos dudosos con aprobacion admin"
 git push
 ```
+
+
+## v8 — Ranking competitivo por promedio
+
+El ranking principal deja de sumar puntajes completos por juntada.
+
+### Nueva fórmula
+
+```text
+Puntaje final =
+85% × Rendimiento promedio
++ 15% × % Asistencia
++ Ajustes normalizados
+```
+
+### Rendimiento promedio
+
+Se promedian únicamente las juntadas donde el jugador recibió votos válidos.
+
+Una ausencia **no agrega un 0** al promedio de rendimiento.
+
+### Asistencia
+
+El porcentaje de asistencia pesa 15% en el ranking principal.
+
+Por ejemplo:
+- 100% de asistencia aporta 15 puntos.
+- 80% aporta 12 puntos.
+- 60% aporta 9 puntos.
+
+### Bonus/Malus y sanciones
+
+Primero se acumulan:
+
+```text
+Bonus/Malus
++ penalizaciones por faltas no justificables
++ penalizaciones por no votar en 72 h
+```
+
+Luego:
+
+```text
+Ajuste normalizado =
+Ajustes acumulados / cantidad de juntadas computadas
+```
+
+Ejemplo:
+
+```text
++5 Bonus
+-10 falta no justificable
+5 juntadas computadas
+
+(-5) / 5 = -1
+```
+
+Ese `-1` se aplica al puntaje final.
+
+### Resultado
+
+El ranking queda en escala `0–100`, haciendo que faltar una juntada perjudique por asistencia y sanciones cuando corresponda, pero sin dejar al jugador fuera de competencia por perder una fecha.
+
+No hace falta ejecutar SQL nuevo.
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+Probá:
+
+```bash
+npm.cmd run dev
+```
+
+Si funciona:
+
+```bash
+git add .
+git commit -m "Ranking promedio competitivo"
+git push
+```
