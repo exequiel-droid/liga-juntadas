@@ -75,7 +75,7 @@ const categories: Array<{
   weight: number;
 }> = [
   { key: "collaboration", label: "Colaboración", icon: "🛒", sub: "Compras, organización y aporte", weight: 0.30 },
-  { key: "cleaning", label: "Limpieza", icon: "🧹", sub: "Orden, lavado y ayuda al final", weight: 0.30 },
+  { key: "cleaning", label: "Limpieza", icon: "🧹", sub: "Orden, cuidado del espacio y limpieza durante la juntada", weight: 0.30 },
   { key: "behavior", label: "Comportamiento", icon: "🤝", sub: "Convivencia y buena onda", weight: 0.20 },
   { key: "attitude", label: "Actitud", icon: "🎉", sub: "Predisposición y participación", weight: 0.20 },
 ];
@@ -217,6 +217,7 @@ export default function Home() {
   const [selectedEventId, setSelectedEventId] = useState("");
   const [voteDrafts, setVoteDrafts] = useState<Record<string, typeof defaultVote>>({});
   const [voteComments, setVoteComments] = useState<Record<string, string>>({});
+  const [editingVotes, setEditingVotes] = useState<Record<string, boolean>>({});
   const [now, setNow] = useState(() => Date.now());
 
   const isAdmin = me?.role === "admin";
@@ -466,6 +467,37 @@ export default function Home() {
     await loadAll();
   }
 
+  function startEditingVote(targetId: string, existing: Vote) {
+    setVoteDrafts((s) => ({
+      ...s,
+      [targetId]: {
+        collaboration: Number(existing.collaboration),
+        cleaning: Number(existing.cleaning),
+        behavior: Number(existing.behavior),
+        attitude: Number(existing.attitude),
+      },
+    }));
+    setVoteComments((s) => ({
+      ...s,
+      [targetId]: existing.review_comment ?? "",
+    }));
+    setEditingVotes((s) => ({ ...s, [targetId]: true }));
+  }
+
+  function cancelEditingVote(targetId: string) {
+    setEditingVotes((s) => ({ ...s, [targetId]: false }));
+    setVoteDrafts((s) => {
+      const next = { ...s };
+      delete next[targetId];
+      return next;
+    });
+    setVoteComments((s) => {
+      const next = { ...s };
+      delete next[targetId];
+      return next;
+    });
+  }
+
   async function saveVote(targetId: string) {
     if (!userId || !selectedEventId || targetId === userId) return;
 
@@ -520,6 +552,12 @@ export default function Home() {
 
     if (result.error) return alert(result.error.message);
     setVoteComments((s) => ({ ...s, [targetId]: "" }));
+    setEditingVotes((s) => ({ ...s, [targetId]: false }));
+    setVoteDrafts((s) => {
+      const next = { ...s };
+      delete next[targetId];
+      return next;
+    });
     await loadAll();
   }
 
@@ -1082,6 +1120,7 @@ export default function Home() {
               {profiles.filter(p=>p.id!==userId).map((p)=>{
                 const att = attendance.find(a=>a.event_id===selectedEventId && a.profile_id===p.id);
                 const existing = votes.find(v=>v.event_id===selectedEventId && v.voter_id===userId && v.target_id===p.id);
+                const isEditing = !!editingVotes[p.id];
                 const draft = voteDrafts[p.id] ?? existing ?? defaultVote;
                 const reviewCheck = classifyVoteDraft(p.id, draft as typeof defaultVote);
                 const absent = att?.status !== "present";
@@ -1116,7 +1155,18 @@ export default function Home() {
 
                     {existing && (
                       <div className="saved-vote-summary">
-                        <div className="saved-vote-summary-title">Tu voto guardado</div>
+                        <div className="saved-vote-summary-head">
+                          <div className="saved-vote-summary-title">Tu voto guardado</div>
+                          {!disabled && !isEditing && (
+                            <button
+                              type="button"
+                              className="edit-vote-btn"
+                              onClick={() => startEditingVote(p.id, existing)}
+                            >
+                              ✏️ Editar voto
+                            </button>
+                          )}
+                        </div>
                         <div className="saved-vote-grid">
                           {categories.map((c) => (
                             <div className="saved-vote-item" key={c.key}>
@@ -1125,6 +1175,9 @@ export default function Home() {
                             </div>
                           ))}
                         </div>
+                        {isDeadlineExpired(currentEvent) && (
+                          <div className="tiny locked-vote-note">🔒 El plazo terminó. Este voto ya no se puede editar.</div>
+                        )}
                       </div>
                     )}
 
@@ -1136,6 +1189,10 @@ export default function Home() {
                       <div className="notice">Esperando que el Admin cierre la juntada.</div>
                     ) : isDeadlineExpired(currentEvent) ? (
                       <div className="absence-label">⛔ Plazo de votación vencido.</div>
+                    ) : existing && !isEditing ? (
+                      <div className="notice vote-saved-readonly">
+                        ✅ Voto guardado. Podés editarlo mientras siga abierta la votación.
+                      </div>
                     ) : (
                       <>
                         <div className="category-list">
@@ -1199,7 +1256,16 @@ export default function Home() {
                           </div>
                         )}
 
-                        <button className="primary" onClick={()=>saveVote(p.id)}>Guardar puntaje de {p.name}</button>
+                        <div className="vote-edit-actions">
+                          <button className="primary" onClick={()=>saveVote(p.id)}>
+                            {existing ? `Guardar cambios de ${p.name}` : `Guardar puntaje de ${p.name}`}
+                          </button>
+                          {existing && isEditing && (
+                            <button className="secondary" type="button" onClick={()=>cancelEditingVote(p.id)}>
+                              Cancelar
+                            </button>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>
@@ -1852,6 +1918,17 @@ function Rules() {
               <small>
                 En el inicio del ranking se muestra quién falta votar, en qué juntada y cuántos votos
                 le faltan. Si el plazo venció, también se indica la penalización.
+              </small>
+            </div>
+          </div>
+
+          <div>
+            <span>✏️</span>
+            <div>
+              <strong>Edición de votos</strong>
+              <small>
+                Un voto ya guardado puede editarse todas las veces que sea necesario mientras siga abierta
+                la ventana de 72 horas. Al vencer el plazo queda bloqueado y pasa a ser solo de lectura.
               </small>
             </div>
           </div>

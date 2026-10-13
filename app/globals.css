@@ -354,3 +354,42 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
 .rule-lines > div > span{
   flex:0 0 auto;
 }
+
+
+/* v9.2: edición explícita de votos guardados */
+.saved-vote-summary-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:7px;
+}
+.saved-vote-summary-head .saved-vote-summary-title{margin-bottom:0}
+.edit-vote-btn{
+  border:1px solid rgba(124,92,255,.35);
+  background:rgba(124,92,255,.10);
+  color:#d9d1ff;
+  border-radius:10px;
+  padding:6px 9px;
+  font-size:10px;
+  font-weight:900;
+  cursor:pointer;
+}
+.edit-vote-btn:hover{background:rgba(124,92,255,.17)}
+.vote-edit-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.locked-vote-note{margin-top:8px;color:var(--muted)}
+.vote-saved-readonly{margin-top:10px}
+@media(max-width:760px){
+  .saved-vote-summary-head{align-items:flex-start}
+  .vote-edit-actions button{flex:1}
+}
+
+
+/* v9.3: descripción de categorías separada visualmente */
+.category-description{
+  display:block;
+  margin-top:4px;
+  color:var(--muted);
+  font-size:11px;
+  line-height:1.35;
+}

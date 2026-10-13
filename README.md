@@ -701,3 +701,52 @@ git add .
 git commit -m "Reglamento completo y votacion descriptiva"
 git push
 ```
+
+
+## v9.2 — Editar votos mientras la votación está abierta
+
+Los votos guardados ahora tienen un flujo explícito de edición.
+
+### Funcionamiento
+
+- Si todavía no votaste a una persona, aparece el formulario normal.
+- Si ya votaste, se muestra **Tu voto guardado** con las cuatro categorías.
+- Mientras no hayan vencido las 72 horas aparece **✏️ Editar voto**.
+- Al editar podés cambiar cualquiera de las categorías.
+- Podés **Guardar cambios** o **Cancelar**.
+- Al vencer las 72 horas el voto queda solo de lectura y ya no se puede modificar.
+
+### Base de datos
+
+No hay SQL nuevo para v9.2.
+
+El archivo consolidado:
+
+```text
+supabase/update_v9.sql
+```
+
+ya permite `UPDATE` de votos propios mientras el evento esté cerrado, el usuario haya estado presente y siga abierta la ventana de 72 horas.
+
+Esta versión incluye todos los cambios de v9.1.
+
+
+## v9.3 — Ajuste de descripción de Limpieza
+
+Se cambió:
+
+```text
+Limpieza
+Orden, lavado y ayuda al final
+```
+
+por:
+
+```text
+Limpieza
+Orden, cuidado del espacio y limpieza durante la juntada
+```
+
+Además, la descripción de cada categoría queda visualmente separada del nombre con un espacio/margen para mejorar la lectura.
+
+No requiere SQL nuevo.
