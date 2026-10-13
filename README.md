@@ -185,3 +185,39 @@ git add .
 git commit -m "Editar y eliminar juntadas"
 git push
 ```
+
+
+## v5.1 — Calendario al editar juntadas
+
+Se aplicó el mismo selector visual de calendario usado al crear una juntada también al formulario de edición.
+
+Reemplazá solamente:
+
+```text
+app/page.tsx
+```
+
+No hace falta SQL nuevo.
+
+Después:
+
+```bash
+npm.cmd run dev
+```
+
+Si funciona bien:
+
+```bash
+git add .
+git commit -m "Corregir calendario al editar juntadas"
+git push
+```
+
+
+## v6 — Pendientes de votación + reglas Bonus/Malus + terminología
+
+- Inicio del Ranking: lista por juntada con quienes todavía deben completar votos, progreso y vencimiento.
+- Reglas: explicación detallada de cómo se aplican y acumulan Bonus/Malus.
+- Texto visible: `Justificada / Sin justificar` pasa a `Justificable / No justificable`.
+- La lógica interna no cambia: Justificable no penaliza; No justificable resta 10 puntos.
+- No requiere SQL nuevo.

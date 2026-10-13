@@ -587,6 +587,35 @@ export default function Home() {
     return result;
   }, [votes]);
 
+  const pendingVotingByEvent = useMemo(() => {
+    return events
+      .filter((e) => e.is_closed && e.closed_at)
+      .map((e) => {
+        const presentIds = attendance
+          .filter((a) => a.event_id === e.id && a.status === "present")
+          .map((a) => a.profile_id);
+
+        const pending = presentIds
+          .map((profileId) => {
+            const profile = profiles.find((p) => p.id === profileId);
+            const requiredTargets = presentIds.filter((id) => id !== profileId);
+            const completedTargets = new Set(
+              votes
+                .filter((v) => v.event_id === e.id && v.voter_id === profileId && requiredTargets.includes(v.target_id))
+                .map((v) => v.target_id)
+            );
+            const required = requiredTargets.length;
+            const completed = completedTargets.size;
+            if (!profile || completed >= required) return null;
+            return { profile, required, completed, missing: required - completed };
+          })
+          .filter(Boolean) as Array<{ profile: Profile; required: number; completed: number; missing: number }>;
+
+        return { event: e, pending, deadline: deadlineFor(e), expired: isDeadlineExpired(e) };
+      })
+      .filter((x) => x.pending.length > 0);
+  }, [events, attendance, votes, profiles]);
+
   if (!sessionReady || loading) {
     return <main className="shell"><div className="card center">Cargando Liga de Juntadas…</div></main>;
   }
@@ -675,6 +704,51 @@ export default function Home() {
           </section>
 
           <section className="card">
+            <div className="section-head pending-head">
+              <div>
+                <h2>🗳️ Votaciones pendientes</h2>
+                <p className="muted">Quién todavía debe completar votos y en qué juntada.</p>
+              </div>
+            </div>
+            {pendingVotingByEvent.length === 0 ? (
+              <div className="success-box">✅ No hay votaciones pendientes.</div>
+            ) : (
+              <div className="pending-event-list">
+                {pendingVotingByEvent.map(({ event, pending, deadline, expired }) => (
+                  <div className={`pending-event-card ${expired ? "expired" : ""}`} key={event.id}>
+                    <div className="pending-event-top">
+                      <div>
+                        <strong>{event.name}</strong>
+                        <div className="muted tiny">
+                          {formatDate(event.event_date)}
+                          {deadline ? ` · ${expired ? "⛔ Venció" : "⏰ Vence"} ${formatDateTime(deadline.toISOString())}` : ""}
+                        </div>
+                      </div>
+                      <span className={expired ? "pending-status expired" : "pending-status"}>
+                        {expired ? "Plazo vencido" : "Pendiente"}
+                      </span>
+                    </div>
+                    <div className="pending-people">
+                      {pending.map((item) => (
+                        <div className="pending-person" key={`${event.id}-${item.profile.id}`}>
+                          <div className="identity-line pending-identity">
+                            <div className="mini-avatar">{item.profile.emoji}</div>
+                            <div className="grow">
+                              <strong>{item.profile.name}</strong>
+                              <small>{item.completed}/{item.required} completados · faltan {item.missing}</small>
+                            </div>
+                            {expired && <span className="penalty-chip">−5 pts</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="card">
             <h2>🏆 Tabla general</h2>
             {ranking.map((r, i) => (
               <div className="ranking-row" key={r.id}>
@@ -710,7 +784,7 @@ export default function Home() {
               {sortedAbsences.map((r,i)=>(
                 <div className="mini-row" key={r.id}>
                   <span>{i===0?"🍾":i===1?"🥈":i===2?"🥉":`#${i+1}`}</span>
-                  <span className="grow">{r.emoji} <strong>{r.name}</strong><small>{r.absent} faltas · {r.unjustified} sin justificar</small></span>
+                  <span className="grow">{r.emoji} <strong>{r.name}</strong><small>{r.absent} faltas · {r.unjustified} no justificable</small></span>
                   <strong>{r.absentPct.toFixed(0)}%</strong>
                 </div>
               ))}
@@ -1116,8 +1190,8 @@ function AdminPerson({
 
       <div className="attendance-buttons">
         <button disabled={attendanceLocked} className={attendance?.status==="present"?"present active":"present"} onClick={()=>onAttendance(profile.id,"present","")}>✅ Asistió</button>
-        <button disabled={attendanceLocked} className={attendance?.status==="justified"?"justified active":"justified"} onClick={()=>onAttendance(profile.id,"justified",reason)}>🟡 Justificada</button>
-        <button disabled={attendanceLocked} className={attendance?.status==="unjustified"?"unjustified active":"unjustified"} onClick={()=>onAttendance(profile.id,"unjustified",reason)}>🔴 Sin justificar</button>
+        <button disabled={attendanceLocked} className={attendance?.status==="justified"?"justified active":"justified"} onClick={()=>onAttendance(profile.id,"justified",reason)}>🟡 Justificable</button>
+        <button disabled={attendanceLocked} className={attendance?.status==="unjustified"?"unjustified active":"unjustified"} onClick={()=>onAttendance(profile.id,"unjustified",reason)}>🔴 No justificable</button>
       </div>
 
       {attendance?.status && attendance.status!=="present" && (
@@ -1257,9 +1331,9 @@ function Rules() {
         <h2>📅 Asistencia y sanciones</h2>
         <div className="rule-lines">
           <div><span>✅</span><div><strong>Asistió</strong><small>Puede recibir y emitir votos normalmente.</small></div></div>
-          <div><span>🟡</span><div><strong>Falta justificada</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
-          <div><span>🔴</span><div><strong>Falta sin justificar</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
-          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Se suma o resta aparte. Solo el Admin puede asignarlo y siempre lleva una descripción.</small></div></div>
+          <div><span>🟡</span><div><strong>Falta justificable</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
+          <div><span>🔴</span><div><strong>Falta no justificable</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
+          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Solo el Admin puede asignarlos y siempre llevan una descripción. Se aplican directamente sobre el total acumulado: un +5 suma 5 puntos y un −5 resta 5 puntos. No modifican los promedios de Colaboración, Limpieza, Comportamiento o Actitud, ni los porcentajes de asistencia. Puede haber más de un Bonus/Malus en una misma juntada y se acumulan entre sí.</small></div></div>
         </div>
       </section>
 
@@ -1269,7 +1343,7 @@ function Rules() {
           <strong>30%</strong> Colaboración + <strong>30%</strong> Limpieza + <strong>20%</strong> Comportamiento + <strong>20%</strong> Actitud
         </div>
         <p className="muted">Ejemplo: 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud = <strong>85 puntos</strong>.</p>
-        <p className="muted tiny">El ranking suma el puntaje final de cada fecha y luego aplica Bonus/Malus, faltas sin justificar y penalizaciones por no completar la votación en plazo.</p>
+        <p className="muted tiny">El ranking suma el puntaje final de cada fecha y luego aplica Bonus/Malus, faltas no justificable y penalizaciones por no completar la votación en plazo.</p>
       </section>
     </>
   );
