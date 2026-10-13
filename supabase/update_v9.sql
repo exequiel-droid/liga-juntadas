@@ -221,15 +221,25 @@ order by review_status;
 
 
 -- ============================================================
--- v9.6 — Sanciones directas al promedio
+-- v9.7 — Sanciones directas al promedio
 -- ============================================================
--- La posición principal ya no usa attendance.penalty.
--- Limpiamos valores históricos para evitar dobles castigos.
+-- La lógica vieja exigía penalty < 0 para una ausencia injustificada.
+-- Esa restricción ya no corresponde porque ahora la sanción se calcula
+-- directamente sobre el promedio de ranking.
+
+alter table public.attendance
+  drop constraint if exists unjustified_penalty_required;
+
+-- attendance.penalty queda neutralizado para evitar doble castigo.
 update public.attendance
 set penalty = 0
 where penalty <> 0;
 
+alter table public.attendance
+  alter column penalty set default 0;
+
 -- Reglas vigentes:
--- No completar todos los votos dentro de 48 h: -0.5 al promedio de ranking.
--- Ausencia no justificable: -0.3 al promedio de ranking.
--- Se calculan dinámicamente en la app.
+-- No completar todos los votos dentro de 48 h: -1.0 al promedio de ranking.
+-- Ausencia no justificable: -0.7 al promedio de ranking.
+-- Ausencia justificable: sin descuento directo.
+-- Estas sanciones se calculan dinámicamente en la app.

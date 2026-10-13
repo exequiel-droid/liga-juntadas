@@ -494,3 +494,24 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
 .ranking-formula-line{
   margin-top:6px;
 }
+
+
+/* v11: temporadas */
+.season-selector-card{margin-bottom:14px}
+.season-active-badge{display:inline-flex;align-items:center;padding:6px 10px;border-radius:999px;background:rgba(39,174,96,.12);border:1px solid rgba(39,174,96,.3);font-size:12px;font-weight:700}
+.season-create-grid{display:grid;grid-template-columns:90px 1fr auto;gap:10px;align-items:end;margin:14px 0}
+.season-admin-list,.season-history-list{display:grid;gap:10px}
+.season-admin-row{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:14px}
+.season-admin-row.active{border-color:rgba(39,174,96,.38);background:rgba(39,174,96,.05)}
+.season-admin-row small,.season-history-head small{display:block;color:var(--muted);margin-top:3px}
+.season-history-card{padding:14px;border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.015)}
+.season-history-card.active{border-color:rgba(39,174,96,.35)}
+.season-history-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
+.season-history-head h3{margin:0}
+.season-podium{display:grid;gap:6px;margin:10px 0}
+.season-podium-row{display:grid;grid-template-columns:32px 1fr auto;gap:8px;align-items:center;padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.025)}
+.season-awards{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.season-awards>span{padding:6px 9px;border:1px solid var(--line);border-radius:999px;font-size:11px;background:rgba(255,255,255,.025)}
+.season-full-table{margin-top:12px}
+.season-full-table summary{cursor:pointer;font-weight:700}
+@media(max-width:760px){.season-create-grid{grid-template-columns:78px 1fr}.season-create-grid button{grid-column:1/-1}.season-admin-row{align-items:flex-start;flex-direction:column}.season-history-head{flex-direction:column}}

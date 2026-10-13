@@ -15,6 +15,32 @@ type Profile = {
   role: Role;
 };
 
+type Season = {
+  id: string;
+  name: string;
+  emoji: string;
+  is_active: boolean;
+  started_at: string | null;
+  closed_at: string | null;
+  created_by: string;
+  final_standings: Array<{
+    profile_id: string;
+    name: string;
+    emoji: string;
+    position: number;
+    performance_avg: number;
+    ranking_average: number;
+    attendance_pct: number;
+    missed_voting_count: number;
+    unjustified_absence_count: number;
+    adjustment: number;
+    missed_voting_penalty: number;
+    unjustified_absence_penalty: number;
+    scored_events: number;
+  }> | null;
+  awards: Record<string, { profile_id: string; name: string; emoji: string; value?: number | string }> | null;
+};
+
 type EventRow = {
   id: string;
   name: string;
@@ -23,6 +49,7 @@ type EventRow = {
   is_closed: boolean;
   closed_at: string | null;
   created_by: string;
+  season_id: string | null;
 };
 
 type Attendance = {
@@ -160,7 +187,7 @@ function formatRemainingTime(milliseconds: number) {
 }
 
 function weightedScore(values: Record<CategoryKey, number>) {
-  return categories.reduce((sum, c) => sum + values[c.key] * c.weight * 10, 0);
+  return categories.reduce((sum, c) => sum + values[c.key] * c.weight, 0);
 }
 
 function average(nums: number[]) {
@@ -191,6 +218,7 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
   const [me, setMe] = useState<Profile | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [seasons, setSeasons] = useState<Season[]>([]);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
@@ -205,6 +233,10 @@ export default function Home() {
   const [showPassword, setShowPassword] = useState(false);
   const dateInputRef = useRef<HTMLInputElement>(null);
   const editDateInputRef = useRef<HTMLInputElement>(null);
+
+  const [selectedSeasonId, setSelectedSeasonId] = useState("");
+  const [newSeasonName, setNewSeasonName] = useState("");
+  const [newSeasonEmoji, setNewSeasonEmoji] = useState("🏆");
 
   const [newEventName, setNewEventName] = useState("");
   const [newEventDate, setNewEventDate] = useState(new Date().toISOString().slice(0, 10));
@@ -254,12 +286,14 @@ export default function Home() {
     setLoading(true);
     const [
       { data: profileRows },
+      { data: seasonRows },
       { data: eventRows },
       { data: attendanceRows },
       { data: adjustmentRows },
       { data: voteRows },
     ] = await Promise.all([
       supabase.from("profiles").select("*").order("name"),
+      supabase.from("seasons").select("*").order("started_at", { ascending: false, nullsFirst: false }),
       supabase.from("events").select("*").order("event_date", { ascending: false }),
       supabase.from("attendance").select("*"),
       supabase.from("point_adjustments").select("*"),
@@ -267,15 +301,25 @@ export default function Home() {
     ]);
 
     const p = (profileRows ?? []) as Profile[];
+    const s = (seasonRows ?? []) as Season[];
     const e = (eventRows ?? []) as EventRow[];
     setProfiles(p);
+    setSeasons(s);
     setEvents(e);
     setAttendance((attendanceRows ?? []) as Attendance[]);
     setAdjustments((adjustmentRows ?? []) as Adjustment[]);
     setVotes((voteRows ?? []) as Vote[]);
     setMe(p.find((x) => x.id === userId) ?? null);
 
-    if (!selectedEventId && e.length) setSelectedEventId(e[0].id);
+    const active = s.find((season) => season.is_active);
+    const selectedStillExists = s.some((season) => season.id === selectedSeasonId);
+    if (!selectedStillExists && active) setSelectedSeasonId(active.id);
+    else if (!selectedStillExists && s.length) setSelectedSeasonId(s[0].id);
+
+    const activeEvents = active ? e.filter((event) => event.season_id === active.id) : [];
+    if (!selectedEventId || !activeEvents.some((event) => event.id === selectedEventId)) {
+      setSelectedEventId(activeEvents[0]?.id ?? "");
+    }
     setLoading(false);
   }
 
@@ -311,8 +355,111 @@ export default function Home() {
     setMe(null);
   }
 
+  async function createSeason() {
+    if (!isAdmin || !userId || !newSeasonName.trim()) return;
+    const { error } = await supabase.from("seasons").insert({
+      name: newSeasonName.trim(),
+      emoji: newSeasonEmoji.trim() || "🏆",
+      is_active: false,
+      created_by: userId,
+    });
+    if (error) return alert(error.message);
+    setNewSeasonName("");
+    setNewSeasonEmoji("🏆");
+    await loadAll();
+  }
+
+  async function startSeason(season: Season) {
+    if (!isAdmin) return;
+    const current = seasons.find((item) => item.is_active);
+    if (current && current.id !== season.id) {
+      return alert(`Primero cerrá ${current.emoji} ${current.name}. Así queda congelado su resultado final.`);
+    }
+    if (season.closed_at) return alert("Una temporada cerrada queda en el historial y no se puede reabrir.");
+
+    const { error } = await supabase
+      .from("seasons")
+      .update({ is_active: true, started_at: season.started_at ?? new Date().toISOString() })
+      .eq("id", season.id);
+    if (error) return alert(error.message);
+    setSelectedSeasonId(season.id);
+    await loadAll();
+  }
+
+  function seasonAwards(eventList: EventRow[], standings: ReturnType<typeof calculateRankingForEvents>) {
+    const eventIds = new Set(eventList.map((event) => event.id));
+    const byAbsences = profiles.map((profile) => ({
+      profile,
+      count: attendance.filter((a) => eventIds.has(a.event_id) && a.profile_id === profile.id && a.status !== "present").length,
+    })).sort((a, b) => b.count - a.count);
+
+    const byMissedVotes = standings.map((row) => ({ profile: row, count: row.missedVotingCount }))
+      .sort((a, b) => b.count - a.count);
+
+    const categoryWinners = Object.fromEntries(categories.map((category) => {
+      const scored = profiles.map((profile) => {
+        const values = eventList
+          .map((event) => eventCategoryAverages(event.id, profile.id))
+          .filter((x) => x.voteCount > 0)
+          .map((x) => x.values[category.key]);
+        return { profile, value: values.length ? average(values) : 0 };
+      }).sort((a, b) => b.value - a.value);
+      const winner = scored[0];
+      return [category.key, winner && winner.value > 0 ? {
+        profile_id: winner.profile.id, name: winner.profile.name, emoji: winner.profile.emoji, value: Number(winner.value.toFixed(1))
+      } : null];
+    }));
+
+    const champion = standings[0];
+    return {
+      champion: champion ? { profile_id: champion.id, name: champion.name, emoji: champion.emoji, value: Number(champion.rankingAverage.toFixed(1)) } : null,
+      ghost: byAbsences[0]?.count ? { profile_id: byAbsences[0].profile.id, name: byAbsences[0].profile.name, emoji: byAbsences[0].profile.emoji, value: byAbsences[0].count } : null,
+      democracy_zero: byMissedVotes[0]?.count ? { profile_id: byMissedVotes[0].profile.id, name: byMissedVotes[0].profile.name, emoji: byMissedVotes[0].profile.emoji, value: byMissedVotes[0].count } : null,
+      ...categoryWinners,
+    };
+  }
+
+  async function closeSeason(season: Season) {
+    if (!isAdmin || !season.is_active) return;
+    const openEvents = events.filter((event) => event.season_id === season.id && !event.is_closed);
+    if (openEvents.length) {
+      return alert("Antes de cerrar la temporada, cerrá todas sus juntadas.");
+    }
+    if (!confirm(`¿Cerrar ${season.emoji} ${season.name}? El resultado quedará congelado en el historial.`)) return;
+
+    const eventList = events.filter((event) => event.season_id === season.id);
+    const standings = calculateRankingForEvents(eventList);
+    const finalStandings = standings.map((row, index) => ({
+      profile_id: row.id,
+      name: row.name,
+      emoji: row.emoji,
+      position: index + 1,
+      performance_avg: Number(row.performanceAvg.toFixed(2)),
+      ranking_average: Number(row.rankingAverage.toFixed(2)),
+      attendance_pct: Number(row.attendancePct.toFixed(2)),
+      missed_voting_count: row.missedVotingCount,
+      unjustified_absence_count: row.unjustifiedAbsenceCount,
+      adjustment: row.adjustment,
+      missed_voting_penalty: Number(row.missedVotingAvgPenalty.toFixed(2)),
+      unjustified_absence_penalty: Number(row.unjustifiedAbsenceAvgPenalty.toFixed(2)),
+      scored_events: row.scoredEvents,
+    }));
+
+    const awards = seasonAwards(eventList, standings);
+    const { error } = await supabase.from("seasons").update({
+      is_active: false,
+      closed_at: new Date().toISOString(),
+      final_standings: finalStandings,
+      awards,
+    }).eq("id", season.id);
+    if (error) return alert(error.message);
+    await loadAll();
+  }
+
   async function createEvent() {
     if (!isAdmin || !userId || !newEventName.trim()) return;
+    const activeSeason = seasons.find((season) => season.is_active);
+    if (!activeSeason) return alert("Primero iniciá una temporada.");
     const { error } = await supabase.from("events").insert({
       name: newEventName.trim(),
       event_date: newEventDate,
@@ -320,6 +467,7 @@ export default function Home() {
       created_by: userId,
       is_closed: false,
       closed_at: null,
+      season_id: activeSeason.id,
     });
     if (error) return alert(error.message);
     setNewEventName("");
@@ -663,10 +811,15 @@ export default function Home() {
     };
   }
 
-  function missedVotingStats(profileId: string) {
+  const activeSeason = seasons.find((season) => season.is_active) ?? null;
+  const selectedSeason = seasons.find((season) => season.id === selectedSeasonId) ?? activeSeason ?? seasons[0] ?? null;
+  const seasonEvents = selectedSeason ? events.filter((event) => event.season_id === selectedSeason.id) : [];
+  const activeSeasonEvents = activeSeason ? events.filter((event) => event.season_id === activeSeason.id) : [];
+
+  function missedVotingStats(profileId: string, eventList: EventRow[] = seasonEvents) {
     let missedEvents = 0;
 
-    events.forEach((event) => {
+    eventList.forEach((event) => {
       if (!event.is_closed || !event.closed_at || !isDeadlineExpired(event)) return;
 
       const wasPresent = attendance.some(
@@ -706,9 +859,10 @@ export default function Home() {
     };
   }
 
-  function unjustifiedAbsenceStats(profileId: string) {
+  function unjustifiedAbsenceStats(profileId: string, eventList: EventRow[] = seasonEvents) {
+    const eventIds = new Set(eventList.map((event) => event.id));
     const count = attendance.filter(
-      (a) => a.profile_id === profileId && a.status === "unjustified"
+      (a) => eventIds.has(a.event_id) && a.profile_id === profileId && a.status === "unjustified"
     ).length;
 
     return {
@@ -737,77 +891,71 @@ export default function Home() {
     return { score: weightedScore(values), voteCount, values };
   }
 
-  const attendanceStats = useMemo(() => {
-    return profiles.map((p) => {
-      const rows = attendance.filter((a) => a.profile_id === p.id);
-      const present = rows.filter((a) => a.status === "present").length;
-      const justified = rows.filter((a) => a.status === "justified").length;
-      const unjustified = rows.filter((a) => a.status === "unjustified").length;
-      const absent = justified + unjustified;
-      const total = rows.length;
-      return {
-        ...p,
-        present,
-        justified,
-        unjustified,
-        absent,
-        total,
-        pct: total ? (present / total) * 100 : 0,
-        absentPct: total ? (absent / total) * 100 : 0,
-      };
-    });
-  }, [profiles, attendance]);
-
-  const ranking = useMemo(() => {
+  function calculateRankingForEvents(eventList: EventRow[]) {
+    const eventIds = new Set(eventList.map((event) => event.id));
     return profiles
       .map((p) => {
-        const eventScores = events
+        const eventScores = eventList
           .map((e) => eventFinalScore(e.id, p.id))
           .filter((x) => x.voteCount > 0);
 
         const performanceSum = eventScores.reduce((sum, x) => sum + x.score, 0);
         const performanceAvg = eventScores.length ? performanceSum / eventScores.length : 0;
-
-        const attendanceRows = attendance.filter((a) => a.profile_id === p.id);
+        const attendanceRows = attendance.filter((a) => eventIds.has(a.event_id) && a.profile_id === p.id);
         const attendedCount = attendanceRows.filter((a) => a.status === "present").length;
-        const attendancePct = attendanceRows.length
-          ? (attendedCount / attendanceRows.length) * 100
-          : 0;
-
-        const missedVoting = missedVotingStats(p.id);
-        const unjustifiedAbsence = unjustifiedAbsenceStats(p.id);
-
+        const attendancePct = attendanceRows.length ? (attendedCount / attendanceRows.length) * 100 : 0;
+        const missedVoting = missedVotingStats(p.id, eventList);
+        const unjustifiedAbsence = unjustifiedAbsenceStats(p.id, eventList);
         const adjustment = adjustments
-          .filter((a) => a.profile_id === p.id)
+          .filter((a) => eventIds.has(a.event_id) && a.profile_id === p.id)
           .reduce((sum, a) => sum + Number(a.points || 0), 0);
-
-        const rankingAverage = Math.max(
-          0,
-          performanceAvg +
-            missedVoting.averagePenalty +
-            unjustifiedAbsence.averagePenalty
-        );
+        const rankingAverage = Math.max(0, performanceAvg + missedVoting.averagePenalty + unjustifiedAbsence.averagePenalty);
 
         return {
-          ...p,
-          performanceAvg,
-          rankingAverage,
-          attendancePct,
-          scoredEvents: eventScores.length,
-          adjustment,
-          missedVotingCount: missedVoting.missedEvents,
-          missedVotingAvgPenalty: missedVoting.averagePenalty,
-          unjustifiedAbsenceCount: unjustifiedAbsence.count,
-          unjustifiedAbsenceAvgPenalty: unjustifiedAbsence.averagePenalty,
+          ...p, performanceAvg, rankingAverage, attendancePct, scoredEvents: eventScores.length, adjustment,
+          missedVotingCount: missedVoting.missedEvents, missedVotingAvgPenalty: missedVoting.averagePenalty,
+          unjustifiedAbsenceCount: unjustifiedAbsence.count, unjustifiedAbsenceAvgPenalty: unjustifiedAbsence.averagePenalty,
         };
       })
-      .sort(
-        (a, b) =>
-          b.rankingAverage - a.rankingAverage ||
-          b.attendancePct - a.attendancePct ||
-          b.performanceAvg - a.performanceAvg
-      );
-  }, [profiles, votes, attendance, adjustments, events]);
+      .sort((a, b) => b.rankingAverage - a.rankingAverage || b.attendancePct - a.attendancePct || b.performanceAvg - a.performanceAvg);
+  }
+
+  const attendanceStats = useMemo(() => {
+    const eventIds = new Set(seasonEvents.map((event) => event.id));
+    return profiles.map((p) => {
+      const rows = attendance.filter((a) => eventIds.has(a.event_id) && a.profile_id === p.id);
+      const present = rows.filter((a) => a.status === "present").length;
+      const justified = rows.filter((a) => a.status === "justified").length;
+      const unjustified = rows.filter((a) => a.status === "unjustified").length;
+      const absent = justified + unjustified;
+      const total = rows.length;
+      return { ...p, present, justified, unjustified, absent, total, pct: total ? (present / total) * 100 : 0, absentPct: total ? (absent / total) * 100 : 0 };
+    });
+  }, [profiles, attendance, selectedSeasonId, events]);
+
+  const ranking = useMemo(() => {
+    if (selectedSeason?.closed_at && selectedSeason.final_standings?.length) {
+      return selectedSeason.final_standings
+        .map((row) => ({
+          id: row.profile_id,
+          name: row.name,
+          emoji: row.emoji,
+          title: profiles.find((p) => p.id === row.profile_id)?.title ?? "",
+          role: profiles.find((p) => p.id === row.profile_id)?.role ?? "user" as Role,
+          performanceAvg: Number(row.performance_avg),
+          rankingAverage: Number(row.ranking_average),
+          attendancePct: Number(row.attendance_pct),
+          scoredEvents: Number(row.scored_events ?? 0),
+          adjustment: Number(row.adjustment ?? 0),
+          missedVotingCount: Number(row.missed_voting_count ?? 0),
+          missedVotingAvgPenalty: Number(row.missed_voting_penalty ?? 0),
+          unjustifiedAbsenceCount: Number(row.unjustified_absence_count ?? 0),
+          unjustifiedAbsenceAvgPenalty: Number(row.unjustified_absence_penalty ?? 0),
+        }))
+        .sort((a, b) => b.rankingAverage - a.rankingAverage);
+    }
+    return calculateRankingForEvents(seasonEvents);
+  }, [profiles, votes, attendance, adjustments, events, selectedSeasonId, seasons]);
 
   const outliers = useMemo(() => {
     const result: Array<{
@@ -843,7 +991,7 @@ export default function Home() {
   }, [votes]);
 
   const activeVotingTimers = useMemo(() => {
-    return events
+    return seasonEvents
       .filter((e) => e.is_closed && e.closed_at)
       .map((e) => {
         const deadline = deadlineFor(e);
@@ -867,14 +1015,14 @@ export default function Home() {
         } => !!item && !item.expired
       )
       .sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
-  }, [events, now]);
+  }, [events, selectedSeasonId, now]);
 
   const rankingLockedForMe = useMemo(() => {
     if (isAdmin || !userId) {
       return { locked: false, events: [] as EventRow[] };
     }
 
-    const blockingEvents = events.filter((event) => {
+    const blockingEvents = seasonEvents.filter((event) => {
       if (!event.is_closed || !event.closed_at) return false;
       if (isDeadlineExpired(event)) return false;
 
@@ -908,10 +1056,10 @@ export default function Home() {
       locked: blockingEvents.length > 0,
       events: blockingEvents,
     };
-  }, [isAdmin, userId, events, attendance, votes, now]);
+  }, [isAdmin, userId, events, selectedSeasonId, attendance, votes, now]);
 
   const pendingVotingByEvent = useMemo(() => {
-    return events
+    return seasonEvents
       .filter((e) => e.is_closed && e.closed_at)
       .map((e) => {
         const presentIds = attendance
@@ -937,7 +1085,7 @@ export default function Home() {
         return { event: e, pending, deadline: deadlineFor(e), expired: isDeadlineExpired(e) };
       })
       .filter((x) => x.pending.length > 0);
-  }, [events, attendance, votes, profiles]);
+  }, [events, selectedSeasonId, attendance, votes, profiles]);
 
   if (!sessionReady || loading) {
     return <main className="shell"><div className="card center">Cargando Liga de Juntadas…</div></main>;
@@ -981,7 +1129,7 @@ export default function Home() {
     );
   }
 
-  const currentEvent = events.find((e) => e.id === selectedEventId);
+  const currentEvent = activeSeasonEvents.find((e) => e.id === selectedEventId);
   const sortedAttendance = [...attendanceStats].sort((a,b) => b.pct - a.pct || b.present - a.present);
   const sortedAbsences = [...attendanceStats].sort((a,b) => b.absentPct - a.absentPct || b.unjustified - a.unjustified);
   const boozeLeader = sortedAbsences[0];
@@ -1013,6 +1161,22 @@ export default function Home() {
 
       {tab === "ranking" && (
         <>
+          <section className="card season-selector-card">
+            <div className="section-head">
+              <div>
+                <h2>{selectedSeason ? `${selectedSeason.emoji} ${selectedSeason.name}` : "🏆 Temporada"}</h2>
+                <p className="muted">El ranking abre por defecto en la temporada actual. Podés consultar cualquier temporada anterior.</p>
+              </div>
+              <select value={selectedSeason?.id ?? ""} onChange={(e) => setSelectedSeasonId(e.target.value)}>
+                {seasons.map((season) => (
+                  <option key={season.id} value={season.id}>
+                    {season.emoji} {season.name}{season.is_active ? " · ACTUAL" : season.closed_at ? " · CERRADA" : " · SIN INICIAR"}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </section>
+
           <section className="hero">
             <div className="card">
               <div className="eyebrow">Líder actual</div>
@@ -1021,8 +1185,8 @@ export default function Home() {
             </div>
             <div className="card">
               <div className="eyebrow">Juntadas</div>
-              <div className="metric">{events.length}</div>
-              <div className="muted">cargadas en la temporada</div>
+              <div className="metric">{seasonEvents.length}</div>
+              <div className="muted">cargadas en {selectedSeason?.name ?? "la temporada"}</div>
             </div>
           </section>
 
@@ -1098,7 +1262,7 @@ export default function Home() {
           </section>
 
           <section className="card">
-            <h2>🏆 Tabla general · Promedio general</h2>
+            <h2>🏆 Tabla · {selectedSeason?.emoji} {selectedSeason?.name}</h2>
 
             {rankingLockedForMe.locked ? (
               <div className="ranking-locked">
@@ -1211,7 +1375,7 @@ export default function Home() {
                   <strong>{r.absentPct.toFixed(0)}%</strong>
                 </div>
               ))}
-              {boozeLeader && events.length > 0 && (
+              {boozeLeader && seasonEvents.length > 0 && (
                 <div className="danger-box">🍻 Si la temporada terminara hoy, <strong>{boozeLeader.emoji} {boozeLeader.name}</strong> paga el escabio.</div>
               )}
             </div>
@@ -1227,11 +1391,12 @@ export default function Home() {
               <p className="muted">La votación se habilita al cerrar la juntada y queda abierta durante 48 horas.</p>
             </div>
             <select value={selectedEventId} onChange={(e)=>setSelectedEventId(e.target.value)}>
-              {events.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
+              {activeSeasonEvents.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
             </select>
           </div>
 
-          {!currentEvent && <div className="notice">Todavía no hay juntadas creadas.</div>}
+          {!activeSeason && <div className="notice">No hay una temporada activa. El Admin debe iniciar una para cargar y votar juntadas.</div>}
+          {activeSeason && !currentEvent && <div className="notice">Todavía no hay juntadas creadas en {activeSeason.emoji} {activeSeason.name}.</div>}
 
           {currentEvent && (
             <>
@@ -1420,7 +1585,41 @@ export default function Home() {
       {tab === "admin" && isAdmin && (
         <>
           <section className="card">
+            <div className="section-head">
+              <div>
+                <h2>🏁 Temporadas</h2>
+                <p className="muted">Las temporadas se crean e inician manualmente. Solo puede haber una activa. Al cerrarla se congela su tabla final y pasa al historial.</p>
+              </div>
+              {activeSeason && <span className="season-active-badge">🟢 {activeSeason.emoji} {activeSeason.name}</span>}
+            </div>
+
+            <div className="season-create-grid">
+              <div><label>Emoji</label><input value={newSeasonEmoji} onChange={(e)=>setNewSeasonEmoji(e.target.value)} maxLength={4} placeholder="❄️" /></div>
+              <div><label>Nombre de temporada</label><input value={newSeasonName} onChange={(e)=>setNewSeasonName(e.target.value)} placeholder="Ej: Invierno '26" /></div>
+              <button className="primary" onClick={createSeason}>Crear temporada</button>
+            </div>
+
+            <div className="season-admin-list">
+              {seasons.map((season) => (
+                <div className={`season-admin-row ${season.is_active ? "active" : ""}`} key={season.id}>
+                  <div>
+                    <strong>{season.emoji} {season.name}</strong>
+                    <small>
+                      {season.is_active ? "🟢 Temporada actual" : season.closed_at ? `🏁 Cerrada ${formatDateTime(season.closed_at)}` : "⚪ Todavía no iniciada"}
+                    </small>
+                  </div>
+                  <div className="event-admin-actions">
+                    {!season.is_active && !season.closed_at && <button className="primary" onClick={()=>startSeason(season)}>▶️ Iniciar</button>}
+                    {season.is_active && <button className="close-event-btn" onClick={()=>closeSeason(season)}>🏁 Cerrar temporada</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="card">
             <h2>👑 Crear juntada</h2>
+            <p className="muted">{activeSeason ? `Se cargará en ${activeSeason.emoji} ${activeSeason.name}.` : "Primero iniciá una temporada."}</p>
             <div className="form-grid">
               <div><label>Nombre</label><input value={newEventName} onChange={e=>setNewEventName(e.target.value)} placeholder="Ej: Asado en lo de Pagis.tv" /></div>
               <div>
@@ -1461,9 +1660,9 @@ export default function Home() {
             <p className="muted">Podés editar nombre, fecha y anfitrión mientras la juntada esté abierta. También podés eliminarla por completo.</p>
 
             <div className="event-admin-list">
-              {events.length === 0 && <div className="notice">Todavía no hay juntadas creadas.</div>}
+              {activeSeasonEvents.length === 0 && <div className="notice">Todavía no hay juntadas creadas en la temporada activa.</div>}
 
-              {events.map((e) => {
+              {activeSeasonEvents.map((e) => {
                 const host = profiles.find((p) => p.id === e.host_id);
                 const isEditing = editingEventId === e.id;
 
@@ -1555,7 +1754,7 @@ export default function Home() {
                 <p className="muted">Marcá la asistencia de todos. Al cerrar la fecha empieza el plazo de 48 horas.</p>
               </div>
               <select value={selectedEventId} onChange={(e)=>setSelectedEventId(e.target.value)}>
-                {events.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
+                {activeSeasonEvents.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
               </select>
             </div>
 
@@ -1676,41 +1875,73 @@ export default function Home() {
 
       {tab === "history" && (
         <section className="card">
-          <h2>📚 Historial</h2>
-          {events.map(e=>{
-            const rows = attendance.filter(a=>a.event_id===e.id && a.status!=="present");
-            const ads = adjustments.filter(a=>a.event_id===e.id);
-            const overdue = profiles.filter((p)=>{
-              if (!e.is_closed || !e.closed_at || !isDeadlineExpired(e)) return false;
-              const att = attendance.find(a=>a.event_id===e.id && a.profile_id===p.id);
-              return att?.status === "present" && !votingProgress(e.id,p.id).done;
-            });
+          <div className="section-head">
+            <div>
+              <h2>🏛️ Historial de temporadas</h2>
+              <p className="muted">Las temporadas cerradas conservan la tabla final y sus premios tal como terminaron.</p>
+            </div>
+          </div>
 
-            return (
-              <div className="history-event" key={e.id}>
-                <div>
-                  <strong>{e.name}</strong>
-                  <div className="muted">
-                    {formatDate(e.event_date)}
-                    {e.is_closed && e.closed_at ? ` · 🔒 cerrada ${formatDateTime(e.closed_at)}` : " · 🟢 abierta"}
+          <div className="season-history-list">
+            {seasons.map((season) => {
+              const standings = season.final_standings ?? [];
+              const awards = season.awards ?? {};
+              const seasonEventCount = events.filter((event) => event.season_id === season.id).length;
+              return (
+                <div className={`season-history-card ${season.is_active ? "active" : ""}`} key={season.id}>
+                  <div className="season-history-head">
+                    <div>
+                      <h3>{season.emoji} {season.name}</h3>
+                      <small>
+                        {season.is_active ? "🟢 Temporada actual" : season.closed_at ? `🏁 Cerrada ${formatDateTime(season.closed_at)}` : "⚪ Sin iniciar"}
+                        {` · ${seasonEventCount} juntadas`}
+                      </small>
+                    </div>
+                    {season.is_active && <span className="season-active-badge">EN JUEGO</span>}
                   </div>
+
+                  {season.closed_at && standings.length > 0 ? (
+                    <>
+                      <div className="season-podium">
+                        {standings.slice(0, 3).map((row) => (
+                          <div className="season-podium-row" key={row.profile_id}>
+                            <span>{row.position === 1 ? "🥇" : row.position === 2 ? "🥈" : "🥉"}</span>
+                            <strong>{row.emoji} {row.name}</strong>
+                            <span>{row.ranking_average.toFixed(1)}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="season-awards">
+                        {awards.champion && <span>🏆 Campeón: <strong>{awards.champion.emoji} {awards.champion.name}</strong></span>}
+                        {awards.ghost && <span>👻 El Fantasma: <strong>{awards.ghost.emoji} {awards.ghost.name}</strong></span>}
+                        {awards.democracy_zero && <span>🗳️ Democracia Cero: <strong>{awards.democracy_zero.emoji} {awards.democracy_zero.name}</strong></span>}
+                        {awards.cleaning && <span>🧼 Don Limpieza: <strong>{awards.cleaning.emoji} {awards.cleaning.name}</strong></span>}
+                        {awards.collaboration && <span>🛒 El Abastecedor: <strong>{awards.collaboration.emoji} {awards.collaboration.name}</strong></span>}
+                        {awards.behavior && <span>🤝 Señor Convivencia: <strong>{awards.behavior.emoji} {awards.behavior.name}</strong></span>}
+                        {awards.attitude && <span>🎉 Alma de la Juntada: <strong>{awards.attitude.emoji} {awards.attitude.name}</strong></span>}
+                      </div>
+
+                      <details className="season-full-table">
+                        <summary>Ver tabla final completa</summary>
+                        {standings.map((row) => (
+                          <div className="mini-row" key={row.profile_id}>
+                            <span>#{row.position}</span>
+                            <span className="grow">{row.emoji} <strong>{row.name}</strong><small>Prom. general {row.performance_avg.toFixed(1)} · Asistencia {row.attendance_pct.toFixed(0)}%</small></span>
+                            <strong>{row.ranking_average.toFixed(1)}</strong>
+                          </div>
+                        ))}
+                      </details>
+                    </>
+                  ) : season.is_active ? (
+                    <div className="notice">Temporada en curso. El resultado final se congela cuando el Admin la cierre.</div>
+                  ) : (
+                    <div className="notice">Esta temporada todavía no fue iniciada.</div>
+                  )}
                 </div>
-                {rows.map(a=>{
-                  const p=profiles.find(x=>x.id===a.profile_id);
-                  return <div className="history-line" key={a.id}>{a.status==="justified"?"🟡":"🔴"} {p?.emoji} {p?.name}: {a.reason || "Sin motivo"} {a.penalty ? `(${a.penalty} pts)` : ""}</div>
-                })}
-                {ads.map(a=>{
-                  const p=profiles.find(x=>x.id===a.profile_id);
-                  return <div className="history-line" key={a.id}>⚡ {p?.emoji} {p?.name}: {a.points>0?"+":""}{a.points} · {a.description}</div>
-                })}
-                {overdue.map(p=>(
-                  <div className="history-line deadline-penalty" key={`deadline-${e.id}-${p.id}`}>
-                    ⏰ {p.emoji} {p.name}: no completó todos los votos en 48 h ({MISSED_VOTING_AVG_PENALTY} pts)
-                  </div>
-                ))}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </section>
       )}
 
