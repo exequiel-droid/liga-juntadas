@@ -1168,3 +1168,55 @@ Antes del push:
 ```bash
 npm.cmd run build
 ```
+
+
+## v11.2 — Registro histórico de Bonus / Malus
+
+Se agregó una sección de consulta para ver todos los Bonus/Malus cargados.
+
+Cada registro muestra:
+
+- jugador;
+- valor positivo o negativo;
+- descripción/motivo;
+- juntada relacionada;
+- temporada;
+- fecha de la juntada;
+- fecha/hora de carga del ajuste.
+
+También incluye filtros por:
+
+- jugador;
+- temporada.
+
+Ejemplo:
+
+```text
+⚡ Exe
+❄️ Invierno '26 · Juntada 4
++5
+Compró todo y organizó
+
+🔻 Pagis
+❄️ Invierno '26 · Juntada 5
+-3
+No ayudó a limpiar
+```
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+No requiere SQL nuevo siempre que la tabla de ajustes ya tenga los campos actuales utilizados por la app.
+
+Antes del push:
+
+```bash
+npm.cmd run build
+```
