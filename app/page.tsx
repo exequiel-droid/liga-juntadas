@@ -109,6 +109,24 @@ function isDeadlineExpired(event: EventRow) {
   return !!deadline && Date.now() > deadline.getTime();
 }
 
+function formatRemainingTime(milliseconds: number) {
+  if (milliseconds <= 0) return "00:00:00";
+
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  const clock = [hours, minutes, seconds]
+    .map((n) => String(n).padStart(2, "0"))
+    .join(":");
+
+  return days > 0
+    ? `${days} ${days === 1 ? "día" : "días"} · ${clock}`
+    : clock;
+}
+
 function weightedScore(values: Record<CategoryKey, number>) {
   return categories.reduce((sum, c) => sum + values[c.key] * c.weight * 10, 0);
 }
@@ -155,6 +173,7 @@ export default function Home() {
 
   const [selectedEventId, setSelectedEventId] = useState("");
   const [voteDrafts, setVoteDrafts] = useState<Record<string, typeof defaultVote>>({});
+  const [now, setNow] = useState(() => Date.now());
 
   const isAdmin = me?.role === "admin";
 
@@ -169,6 +188,11 @@ export default function Home() {
     });
 
     return () => subscription.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -587,6 +611,33 @@ export default function Home() {
     return result;
   }, [votes]);
 
+  const activeVotingTimers = useMemo(() => {
+    return events
+      .filter((e) => e.is_closed && e.closed_at)
+      .map((e) => {
+        const deadline = deadlineFor(e);
+        if (!deadline) return null;
+
+        const remainingMs = deadline.getTime() - now;
+
+        return {
+          event: e,
+          deadline,
+          remainingMs,
+          expired: remainingMs <= 0,
+        };
+      })
+      .filter(
+        (item): item is {
+          event: EventRow;
+          deadline: Date;
+          remainingMs: number;
+          expired: boolean;
+        } => !!item && !item.expired
+      )
+      .sort((a, b) => a.deadline.getTime() - b.deadline.getTime());
+  }, [events, now]);
+
   const pendingVotingByEvent = useMemo(() => {
     return events
       .filter((e) => e.is_closed && e.closed_at)
@@ -701,6 +752,32 @@ export default function Home() {
               <div className="metric">{events.length}</div>
               <div className="muted">cargadas en la temporada</div>
             </div>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <div>
+                <h2>⏳ Cierre de votaciones</h2>
+                <p className="muted">Tiempo restante para cada juntada que todavía tiene la votación abierta.</p>
+              </div>
+            </div>
+
+            {activeVotingTimers.length === 0 ? (
+              <div className="notice">No hay votaciones abiertas en este momento.</div>
+            ) : (
+              <div className="timer-grid">
+                {activeVotingTimers.map(({ event, deadline, remainingMs }) => (
+                  <div className="voting-timer-card" key={event.id}>
+                    <div className="timer-event-name">🍖 {event.name}</div>
+                    <div className="timer-label">Cierra en</div>
+                    <div className="timer-value">{formatRemainingTime(remainingMs)}</div>
+                    <div className="muted tiny">
+                      Cierre: {formatDateTime(deadline.toISOString())}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="card">
