@@ -1109,3 +1109,114 @@ No requiere SQL adicional respecto de v10.
 \n\n## v11 — Temporadas manuales e historial\n\n### Temporadas\n- El Admin crea temporadas manualmente con nombre y emoji.\n- Solo puede existir una temporada activa.\n- Para iniciar otra, primero se cierra la actual.\n- Las juntadas nuevas se asignan automáticamente a la temporada activa.\n- Ranking abre por defecto en la temporada actual, pero permite consultar temporadas anteriores.\n\n### Cierre e historial congelado\nAl cerrar una temporada se guarda un snapshot con la tabla final y premios. Cambios futuros de reglas no recalculan ese resultado histórico.\n\nPremios incluidos:\n- 🏆 Campeón\n- 👻 El Fantasma (más ausencias)\n- 🗳️ Democracia Cero (más incumplimientos de votación)\n- 🧼 Don Limpieza\n- 🛒 El Abastecedor\n- 🤝 Señor Convivencia\n- 🎉 Alma de la Juntada\n\n### Migración\nEjecutar `supabase/update_v11.sql`. Si ya existen juntadas, se asignan automáticamente a `🏁 Temporada inicial`.\n\n### Archivos\nReemplazar `app/page.tsx`, `app/globals.css`, `README.md` y agregar `supabase/update_v11.sql`.\n
 ### Escala del promedio
 En v11 el promedio general queda expresado correctamente en escala **0 a 10** (por ejemplo 8,6). Esto hace que las sanciones acordadas tengan el peso esperado: −1,0 por no votar y −0,7 por falta no justificable.
+
+
+## v11.1 — Ranking visible sobre 100 + corrección de Reglamento
+
+### Escala
+
+La lógica interna continúa trabajando con notas entre 0 y 10 para preservar compatibilidad con votos y temporadas existentes.
+
+La interfaz del ranking ahora muestra esos valores sobre 100:
+
+```text
+8,15 interno -> 81.5 visible
+```
+
+Por lo tanto las sanciones se muestran como:
+
+- No completar la votación en 48 horas: **−10.0**
+- Falta no justificable: **−7.0**
+
+Ejemplo:
+
+```text
+Promedio general:            81.5
+No votar una juntada:       -10.0
+Falta no justificable:       -7.0
+Promedio de ranking:         64.5
+```
+
+El peso matemático es exactamente el mismo que antes; solo cambia la escala visible.
+
+### Reglamento
+
+Se corrigió el bloque de reglas que estaba mal anidado y provocaba que “Promedio general” apareciera en una columna extremadamente angosta.
+
+También se eliminaron textos antiguos como:
+
+```text
+resta 10 puntos automáticamente
+recibe -5 puntos
+```
+
+y se reemplazaron por las reglas vigentes.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+```
+
+No requiere cambios nuevos de SQL ni CSS.
+
+Antes del push:
+
+```bash
+npm.cmd run build
+```
+
+
+## v11.2 — Registro histórico de Bonus / Malus
+
+Se agregó una sección de consulta para ver todos los Bonus/Malus cargados.
+
+Cada registro muestra:
+
+- jugador;
+- valor positivo o negativo;
+- descripción/motivo;
+- juntada relacionada;
+- temporada;
+- fecha de la juntada;
+- fecha/hora de carga del ajuste.
+
+También incluye filtros por:
+
+- jugador;
+- temporada.
+
+Ejemplo:
+
+```text
+⚡ Exe
+❄️ Invierno '26 · Juntada 4
++5
+Compró todo y organizó
+
+🔻 Pagis
+❄️ Invierno '26 · Juntada 5
+-3
+No ayudó a limpiar
+```
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+No requiere SQL nuevo siempre que la tabla de ajustes ya tenga los campos actuales utilizados por la app.
+
+Antes del push:
+
+```bash
+npm.cmd run build
+```

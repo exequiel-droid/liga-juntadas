@@ -515,3 +515,89 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
 .season-full-table{margin-top:12px}
 .season-full-table summary{cursor:pointer;font-weight:700}
 @media(max-width:760px){.season-create-grid{grid-template-columns:78px 1fr}.season-create-grid button{grid-column:1/-1}.season-admin-row{align-items:flex-start;flex-direction:column}.season-history-head{flex-direction:column}}
+
+
+/* v11.2: historial Bonus / Malus */
+.bonus-history-filters{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px;
+  margin:12px 0 14px;
+}
+.bonus-history-filters label{
+  display:flex;
+  flex-direction:column;
+  gap:5px;
+  font-size:12px;
+  color:var(--muted);
+}
+.bonus-history-list{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.bonus-history-row{
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:12px;
+  background:rgba(255,255,255,.02);
+}
+.bonus-history-main{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.bonus-history-user{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  min-width:0;
+}
+.bonus-history-user > div{
+  min-width:0;
+}
+.bonus-history-user strong,
+.bonus-history-user small{
+  display:block;
+}
+.bonus-history-user small{
+  color:var(--muted);
+  margin-top:2px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.bonus-history-avatar{
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  display:grid;
+  place-items:center;
+  border:1px solid var(--line);
+  background:#0f141d;
+  flex:0 0 auto;
+}
+.bonus-history-points{
+  font-weight:800;
+  font-size:18px;
+  flex:0 0 auto;
+}
+.bonus-history-points.positive{
+  color:#8ce99a;
+}
+.bonus-history-points.negative{
+  color:#ff9aac;
+}
+.bonus-history-reason{
+  margin-top:9px;
+  line-height:1.4;
+}
+.bonus-history-meta{
+  margin-top:6px;
+}
+@media(max-width:760px){
+  .bonus-history-filters{
+    grid-template-columns:1fr;
+  }
+}
