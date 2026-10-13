@@ -974,3 +974,43 @@ git add .
 git commit -m "Corregir build de sanciones y ranking"
 git push
 ```
+
+
+## v9.9 — Corrección puntual del ranking de asistencia
+
+Se corrigió una referencia que había quedado mal por un reemplazo global:
+
+```text
+r.rankingAverage
+```
+
+se estaba usando dentro del ranking de asistencia, cuyo objeto utiliza:
+
+```text
+r.total
+```
+
+No cambia ninguna regla ni cálculo del ranking principal.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+```
+
+Después:
+
+```bash
+npm.cmd run build
+```
+
+Si compila:
+
+```bash
+git add .
+git commit -m "Corregir build ranking asistencia"
+git push
+```

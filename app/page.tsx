@@ -1180,7 +1180,7 @@ export default function Home() {
               {sortedAttendance.map((r,i)=>(
                 <div className="mini-row" key={r.id}>
                   <span>{i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`}</span>
-                  <span className="grow">{r.emoji} <strong>{r.name}</strong><small>{r.present}/{r.rankingAverage} juntadas</small></span>
+                  <span className="grow">{r.emoji} <strong>{r.name}</strong><small>{r.present}/{r.total} juntadas</small></span>
                   <strong>{r.pct.toFixed(0)}%</strong>
                 </div>
               ))}
