@@ -218,3 +218,18 @@ select review_status, count(*) as cantidad_votos
 from public.votes
 group by review_status
 order by review_status;
+
+
+-- ============================================================
+-- v9.6 — Sanciones directas al promedio
+-- ============================================================
+-- La posición principal ya no usa attendance.penalty.
+-- Limpiamos valores históricos para evitar dobles castigos.
+update public.attendance
+set penalty = 0
+where penalty <> 0;
+
+-- Reglas vigentes:
+-- No completar todos los votos dentro de 48 h: -0.5 al promedio de ranking.
+-- Ausencia no justificable: -0.3 al promedio de ranking.
+-- Se calculan dinámicamente en la app.

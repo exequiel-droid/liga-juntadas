@@ -61,8 +61,8 @@ type Vote = {
 
 const supabase = createClient();
 
-const UNJUSTIFIED_PENALTY = -10;
-const MISSED_VOTING_PENALTY = -5;
+const UNJUSTIFIED_AVG_PENALTY = -0.3;
+const MISSED_VOTING_AVG_PENALTY = -0.5;
 const VOTING_HOURS = 48;
 const OUTLIER_THRESHOLD = 3;
 const SUSPICIOUS_THRESHOLD = 4;
@@ -663,14 +663,58 @@ export default function Home() {
     };
   }
 
-  function missedVotingPenalty(profileId: string) {
-    return events.reduce((sum, e) => {
-      if (!e.is_closed || !e.closed_at || !isDeadlineExpired(e)) return sum;
-      const att = attendance.find((a) => a.event_id === e.id && a.profile_id === profileId);
-      if (att?.status !== "present") return sum;
-      const progress = votingProgress(e.id, profileId);
-      return sum + (progress.done ? 0 : MISSED_VOTING_PENALTY);
-    }, 0);
+  function missedVotingStats(profileId: string) {
+    let missedEvents = 0;
+
+    events.forEach((event) => {
+      if (!event.is_closed || !event.closed_at || !isDeadlineExpired(event)) return;
+
+      const wasPresent = attendance.some(
+        (a) =>
+          a.event_id === event.id &&
+          a.profile_id === profileId &&
+          a.status === "present"
+      );
+
+      if (!wasPresent) return;
+
+      const presentIds = attendance
+        .filter((a) => a.event_id === event.id && a.status === "present")
+        .map((a) => a.profile_id);
+
+      const requiredTargets = presentIds.filter((id) => id !== profileId);
+
+      const completedTargets = new Set(
+        votes
+          .filter(
+            (v) =>
+              v.event_id === event.id &&
+              v.voter_id === profileId &&
+              requiredTargets.includes(v.target_id)
+          )
+          .map((v) => v.target_id)
+      );
+
+      if (completedTargets.size < requiredTargets.length) {
+        missedEvents += 1;
+      }
+    });
+
+    return {
+      missedEvents,
+      averagePenalty: missedEvents * MISSED_VOTING_AVG_PENALTY,
+    };
+  }
+
+  function unjustifiedAbsenceStats(profileId: string) {
+    const count = attendance.filter(
+      (a) => a.profile_id === profileId && a.status === "unjustified"
+    ).length;
+
+    return {
+      count,
+      averagePenalty: count * UNJUSTIFIED_AVG_PENALTY,
+    };
   }
 
   function eventCategoryAverages(eventId: string, targetId: string) {
@@ -721,57 +765,47 @@ export default function Home() {
           .map((e) => eventFinalScore(e.id, p.id))
           .filter((x) => x.voteCount > 0);
 
-        // Rendimiento: promedio 0-100 de las juntadas donde recibió votos válidos.
         const performanceSum = eventScores.reduce((sum, x) => sum + x.score, 0);
         const performanceAvg = eventScores.length ? performanceSum / eventScores.length : 0;
 
-        // Asistencia: porcentaje sobre todas las juntadas donde el Admin ya marcó su estado.
         const attendanceRows = attendance.filter((a) => a.profile_id === p.id);
         const attendedCount = attendanceRows.filter((a) => a.status === "present").length;
         const attendancePct = attendanceRows.length
           ? (attendedCount / attendanceRows.length) * 100
           : 0;
 
-        // Penalizaciones y Bonus/Malus se normalizan para que una sola fecha
-        // no destruya el ranking de temporada.
-        const attendancePenalty = attendanceRows
-          .reduce((sum, a) => sum + Number(a.penalty || 0), 0);
-
-        const deadlinePenalty = missedVotingPenalty(p.id);
+        const missedVoting = missedVotingStats(p.id);
+        const unjustifiedAbsence = unjustifiedAbsenceStats(p.id);
 
         const adjustment = adjustments
           .filter((a) => a.profile_id === p.id)
           .reduce((sum, a) => sum + Number(a.points || 0), 0);
 
-        const rawAdjustments = attendancePenalty + deadlinePenalty + adjustment;
-        const normalizationEvents = Math.max(attendanceRows.length, 1);
-        const normalizedAdjustment = rawAdjustments / normalizationEvents;
-
-        const baseScore = performanceAvg * 0.85 + attendancePct * 0.15;
-        const total = Math.max(0, Math.min(100, baseScore + normalizedAdjustment));
+        const rankingAverage = Math.max(
+          0,
+          performanceAvg +
+            missedVoting.averagePenalty +
+            unjustifiedAbsence.averagePenalty
+        );
 
         return {
           ...p,
-          total,
-          baseScore,
           performanceAvg,
+          rankingAverage,
           attendancePct,
           scoredEvents: eventScores.length,
-          normalizationEvents,
-          attendancePenalty,
-          deadlinePenalty,
           adjustment,
-          rawAdjustments,
-          normalizedAdjustment,
+          missedVotingCount: missedVoting.missedEvents,
+          missedVotingAvgPenalty: missedVoting.averagePenalty,
+          unjustifiedAbsenceCount: unjustifiedAbsence.count,
+          unjustifiedAbsenceAvgPenalty: unjustifiedAbsence.averagePenalty,
         };
       })
-      // El ranking principal se define por el promedio general.
-      // En caso de empate, usamos asistencia y luego el puntaje ajustado como desempate.
       .sort(
         (a, b) =>
-          b.performanceAvg - a.performanceAvg ||
+          b.rankingAverage - a.rankingAverage ||
           b.attendancePct - a.attendancePct ||
-          b.total - a.total
+          b.performanceAvg - a.performanceAvg
       );
   }, [profiles, votes, attendance, adjustments, events]);
 
@@ -983,7 +1017,7 @@ export default function Home() {
             <div className="card">
               <div className="eyebrow">Líder actual</div>
               <div className="metric">{ranking[0] ? `${ranking[0].emoji} ${ranking[0].name}` : "—"}</div>
-              <div className="muted">{ranking[0] ? `${ranking[0].performanceAvg.toFixed(1)} promedio` : "Todavía no hay puntos"}</div>
+              <div className="muted">{ranking[0] ? `${ranking[0].rankingAverage.toFixed(1)} promedio ranking` : "Todavía no hay puntos"}</div>
             </div>
             <div className="card">
               <div className="eyebrow">Juntadas</div>
@@ -1052,7 +1086,7 @@ export default function Home() {
                               <strong>{item.profile.name}</strong>
                               <small>{item.completed}/{item.required} completados · faltan {item.missing}</small>
                             </div>
-                            {expired && <span className="penalty-chip">−5 pts</span>}
+                            {expired && <span className="penalty-chip">−0,5 prom.</span>}
                           </div>
                         </div>
                       ))}
@@ -1721,7 +1755,7 @@ function AdminPerson({
         <div className="reason-row">
           <input disabled={attendanceLocked} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo de la inasistencia..." />
           <button disabled={attendanceLocked} className="secondary" onClick={()=>onAttendance(profile.id,attendance.status,reason)}>Guardar motivo</button>
-          {attendance.status==="unjustified" && <span className="penalty-chip">−10 pts obligatorio</span>}
+          {attendance.status==="unjustified" && <span className="penalty-chip">−0,3 prom. obligatorio</span>}
         </div>
       )}
 
@@ -1858,7 +1892,7 @@ function Rules() {
           <div><span>🔒</span><div><strong>Cierre de la juntada</strong><small>El Admin confirma asistencias y cierra la fecha. Desde ese momento comienza el plazo de votación.</small></div></div>
           <div><span>2️⃣</span><div><strong>48 horas</strong><small>Cada asistente tiene 2 días para puntuar a todos los demás asistentes.</small></div></div>
           <div><span>🚫</span><div><strong>Quiénes pueden votar</strong><small>Solo pueden votar quienes estuvieron marcados como presentes en esa juntada. Además, únicamente pueden puntuar a otros asistentes presentes. Quien faltó no puede votar esa fecha.</small></div></div>
-          <div><span>−5</span><div><strong>Votación incompleta</strong><small>Si al vencer las 48 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
+          <div><span>−5</span><div><strong>Votación incompleta (−0,5 al promedio)</strong><small>Si al vencer las 48 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
           <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 48 horas los votos de esa fecha quedan bloqueados.</small></div></div>
         </div>
       </section>
@@ -1906,6 +1940,17 @@ function Rules() {
           <div>
             <span>📊</span>
             <div>
+            <span>🏁</span>
+            <div>
+              <strong>Promedio de ranking</strong>
+              <small>
+                Es el promedio bruto menos 0,5 por cada juntada en la que no completaste los votos dentro de 48 horas
+                y menos 0,3 por cada ausencia no justificable. Ese valor define la posición en la tabla.
+              </small>
+            </div>
+          </div>
+
+          <div>
               <strong>Promedio general</strong>
               <small>
                 El ranking principal se ordena por el promedio general de rendimiento de las juntadas
@@ -1974,9 +2019,9 @@ function Rules() {
           <div>
             <span>🔴</span>
             <div>
-              <strong>Ausencia no justificable</strong>
+              <strong>Ausencia no justificable (−0,3 al promedio)</strong>
               <small>
-                Cuenta como ausencia y aplica una penalización obligatoria de −10 puntos.
+                Cuenta como ausencia y aplica una penalización de −0,3 puntos directos sobre el promedio de ranking por cada ausencia no justificable.
               </small>
             </div>
           </div>
@@ -2006,10 +2051,10 @@ function Rules() {
           <div>
             <span>−5</span>
             <div>
-              <strong>Votación incompleta</strong>
+              <strong>Votación incompleta (−0,5 al promedio)</strong>
               <small>
                 Si un asistente no completa todos los votos obligatorios dentro de las 48 horas,
-                recibe una penalización de −5 puntos para esa juntada.
+                recibe una penalización de −0,5 puntos directos sobre su promedio de ranking por cada juntada incumplida.
               </small>
             </div>
           </div>

@@ -794,3 +794,59 @@ interval '48 hours'
 ```
 
 No hace falta ejecutar migraciones viejas por separado.
+
+
+## v9.6 — Sanciones directas al promedio
+
+Se revisaron las dos reglas para que tengan impacto real en el ranking:
+
+- No completar todos los votos dentro de 48 horas: **−0,5 al promedio de ranking por juntada incumplida**.
+- Ausencia no justificable: **−0,3 al promedio de ranking por ausencia**.
+- Ausencia justificable: **sin descuento directo al promedio**.
+
+Ejemplo:
+
+```text
+Promedio bruto:                  8,7
+1 votación incompleta           -0,5
+1 ausencia no justificable      -0,3
+Promedio de ranking:             7,9
+```
+
+La tabla se ordena por **promedio de ranking**, no por el promedio bruto.
+
+Bonus/Malus quedan como dato adicional y no modifican este promedio.
+
+### SQL
+
+Volvé a ejecutar:
+
+```text
+supabase/update_v9.sql
+```
+
+Esto limpia penalizaciones históricas guardadas en `attendance.penalty` para evitar dobles castigos.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+README.md
+supabase/update_v9.sql
+```
+
+Antes de subir:
+
+```bash
+npm.cmd run build
+```
+
+Luego:
+
+```bash
+git add .
+git commit -m "Aplicar sanciones directas al promedio"
+git push
+```
