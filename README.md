@@ -12,9 +12,9 @@ Esta versión suma control de votos, cierre de juntadas y penalización automát
   - no se elimina automáticamente.
 - 🔎 El Admin puede ver el detalle completo de quién votó a quién y los valores por categoría.
 - 🔒 El Admin cierra la juntada.
-- ⏰ Desde el cierre corren 72 horas para votar.
+- ⏰ Desde el cierre corren 48 horas para votar.
 - Cada asistente debe votar a todos los demás asistentes.
-- ⛔ Después de las 72 horas ya no se pueden crear ni modificar votos.
+- ⛔ Después de las 48 horas ya no se pueden crear ni modificar votos.
 - −5 pts automáticos si un asistente no completó todos sus votos dentro del plazo.
 - 📜 Reglas actualizadas con toda esta lógica.
 
@@ -53,7 +53,7 @@ Si funciona:
 
 ```bash
 git add .
-git commit -m "Control de votos y plazo de 72 horas"
+git commit -m "Control de votos y plazo de 48 horas"
 git push
 ```
 
@@ -68,15 +68,15 @@ Vercel debería desplegar automáticamente.
 
 Sanciones:
 - 🔴 falta sin justificar: −10 pts.
-- ⏰ votación incompleta al vencer 72 h: −5 pts por juntada.
+- ⏰ votación incompleta al vencer 48 h: −5 pts por juntada.
 - ⚡ Bonus/Malus: solo Admin.
 
-## Cómo funciona la penalización de 72 horas
+## Cómo funciona la penalización de 48 horas
 
 La penalización se calcula dinámicamente al cargar la app:
 
 1. la juntada debe estar cerrada;
-2. deben haber pasado 72 horas;
+2. deben haber pasado 48 horas;
 3. el jugador debe haber asistido;
 4. se cuentan todos los demás asistentes que debía puntuar;
 5. si falta al menos un voto, se aplican −5 puntos una sola vez para esa fecha.
@@ -355,7 +355,7 @@ Primero se acumulan:
 ```text
 Bonus/Malus
 + penalizaciones por faltas no justificables
-+ penalizaciones por no votar en 72 h
++ penalizaciones por no votar en 48 h
 ```
 
 Luego:
@@ -430,7 +430,7 @@ Para guardar un voto:
 - la persona votada debe estar `present`;
 - no puede votarse a sí mismo;
 - la juntada debe estar cerrada;
-- deben seguir vigentes las 72 horas de votación.
+- deben seguir vigentes las 48 horas de votación.
 
 
 ## v8.2 — Ranking ordenado por promedio general
@@ -648,7 +648,7 @@ La pestaña **Reglas** ahora documenta todo el sistema vigente:
 - Justificable / No justificable;
 - penalización −10;
 - quiénes pueden votar;
-- ventana de 72 horas;
+- ventana de 48 horas;
 - timer de cierre;
 - votaciones pendientes;
 - penalización −5 por votación incompleta;
@@ -711,10 +711,10 @@ Los votos guardados ahora tienen un flujo explícito de edición.
 
 - Si todavía no votaste a una persona, aparece el formulario normal.
 - Si ya votaste, se muestra **Tu voto guardado** con las cuatro categorías.
-- Mientras no hayan vencido las 72 horas aparece **✏️ Editar voto**.
+- Mientras no hayan vencido las 48 horas aparece **✏️ Editar voto**.
 - Al editar podés cambiar cualquiera de las categorías.
 - Podés **Guardar cambios** o **Cancelar**.
-- Al vencer las 72 horas el voto queda solo de lectura y ya no se puede modificar.
+- Al vencer las 48 horas el voto queda solo de lectura y ya no se puede modificar.
 
 ### Base de datos
 
@@ -726,7 +726,7 @@ El archivo consolidado:
 supabase/update_v9.sql
 ```
 
-ya permite `UPDATE` de votos propios mientras el evento esté cerrado, el usuario haya estado presente y siga abierta la ventana de 72 horas.
+ya permite `UPDATE` de votos propios mientras el evento esté cerrado, el usuario haya estado presente y siga abierta la ventana de 48 horas.
 
 Esta versión incluye todos los cambios de v9.1.
 
@@ -762,3 +762,35 @@ No requiere SQL nuevo.
 - Cuando vence la ventana de votación, esa fecha deja de bloquear visualmente el ranking y se aplican las penalizaciones existentes cuando corresponda.
 
 No requiere SQL nuevo. Se sigue usando `supabase/update_v9.sql`.
+
+
+## v9.5 — Ventana de votación de 48 horas
+
+El plazo de votación baja de **72 horas a 48 horas**.
+
+El cambio aplica en todos los lugares del sistema:
+
+- timer de cierre;
+- permisos para crear votos;
+- permisos para editar votos;
+- bloqueo del ranking mientras haya votos pendientes;
+- penalización por votación incompleta;
+- reglas visibles dentro de la app;
+- mensajes al usuario;
+- políticas RLS de Supabase.
+
+### SQL
+
+Como cambia el plazo que valida Supabase, ejecutá nuevamente:
+
+```text
+supabase/update_v9.sql
+```
+
+El archivo ya fue actualizado para usar:
+
+```sql
+interval '48 hours'
+```
+
+No hace falta ejecutar migraciones viejas por separado.

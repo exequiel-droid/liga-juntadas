@@ -63,7 +63,7 @@ const supabase = createClient();
 
 const UNJUSTIFIED_PENALTY = -10;
 const MISSED_VOTING_PENALTY = -5;
-const VOTING_HOURS = 72;
+const VOTING_HOURS = 48;
 const OUTLIER_THRESHOLD = 3;
 const SUSPICIOUS_THRESHOLD = 4;
 
@@ -412,7 +412,7 @@ export default function Home() {
       );
     }
 
-    if (!confirm("¿Cerrar la juntada? Desde ahora empiezan las 72 horas para completar los votos.")) return;
+    if (!confirm("¿Cerrar la juntada? Desde ahora empiezan las 48 horas para completar los votos.")) return;
 
     const { error } = await supabase
       .from("events")
@@ -506,7 +506,7 @@ export default function Home() {
       return alert("La votación se habilita cuando el Admin cierra la juntada.");
     }
     if (isDeadlineExpired(event)) {
-      return alert("El plazo de 72 horas ya terminó.");
+      return alert("El plazo de 48 horas ya terminó.");
     }
 
     const myAttendance = attendance.find(
@@ -1173,7 +1173,7 @@ export default function Home() {
           <div className="section-head">
             <div>
               <h2>📝 Puntuar juntada</h2>
-              <p className="muted">La votación se habilita al cerrar la juntada y queda abierta durante 72 horas.</p>
+              <p className="muted">La votación se habilita al cerrar la juntada y queda abierta durante 48 horas.</p>
             </div>
             <select value={selectedEventId} onChange={(e)=>setSelectedEventId(e.target.value)}>
               {events.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
@@ -1501,7 +1501,7 @@ export default function Home() {
             <div className="section-head">
               <div>
                 <h2>📋 Asistencia, Bonus/Malus y cierre</h2>
-                <p className="muted">Marcá la asistencia de todos. Al cerrar la fecha empieza el plazo de 72 horas.</p>
+                <p className="muted">Marcá la asistencia de todos. Al cerrar la fecha empieza el plazo de 48 horas.</p>
               </div>
               <select value={selectedEventId} onChange={(e)=>setSelectedEventId(e.target.value)}>
                 {events.map(e=><option key={e.id} value={e.id}>{formatDate(e.event_date)} · {e.name}</option>)}
@@ -1519,7 +1519,7 @@ export default function Home() {
                   )}
                 </div>
                 {!currentEvent.is_closed && (
-                  <button className="close-event-btn" onClick={()=>closeEvent(currentEvent.id)}>🔒 Cerrar juntada e iniciar 72 h</button>
+                  <button className="close-event-btn" onClick={()=>closeEvent(currentEvent.id)}>🔒 Cerrar juntada e iniciar 48 h</button>
                 )}
               </div>
             )}
@@ -1654,7 +1654,7 @@ export default function Home() {
                 })}
                 {overdue.map(p=>(
                   <div className="history-line deadline-penalty" key={`deadline-${e.id}-${p.id}`}>
-                    ⏰ {p.emoji} {p.name}: no completó todos los votos en 72 h ({MISSED_VOTING_PENALTY} pts)
+                    ⏰ {p.emoji} {p.name}: no completó todos los votos en 48 h ({MISSED_VOTING_PENALTY} pts)
                   </div>
                 ))}
               </div>
@@ -1856,10 +1856,10 @@ function Rules() {
         <h2>⏰ Cierre y plazo para votar</h2>
         <div className="rule-lines">
           <div><span>🔒</span><div><strong>Cierre de la juntada</strong><small>El Admin confirma asistencias y cierra la fecha. Desde ese momento comienza el plazo de votación.</small></div></div>
-          <div><span>3️⃣</span><div><strong>72 horas</strong><small>Cada asistente tiene 3 días para puntuar a todos los demás asistentes.</small></div></div>
+          <div><span>2️⃣</span><div><strong>48 horas</strong><small>Cada asistente tiene 2 días para puntuar a todos los demás asistentes.</small></div></div>
           <div><span>🚫</span><div><strong>Quiénes pueden votar</strong><small>Solo pueden votar quienes estuvieron marcados como presentes en esa juntada. Además, únicamente pueden puntuar a otros asistentes presentes. Quien faltó no puede votar esa fecha.</small></div></div>
-          <div><span>−5</span><div><strong>Votación incompleta</strong><small>Si al vencer las 72 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
-          <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 72 horas los votos de esa fecha quedan bloqueados.</small></div></div>
+          <div><span>−5</span><div><strong>Votación incompleta</strong><small>Si al vencer las 48 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
+          <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 48 horas los votos de esa fecha quedan bloqueados.</small></div></div>
         </div>
       </section>
 
@@ -1997,7 +1997,7 @@ function Rules() {
             <div>
               <strong>Plazo de votación</strong>
               <small>
-                Una vez que el Admin cierra la juntada, se habilita una ventana de 72 horas para votar.
+                Una vez que el Admin cierra la juntada, se habilita una ventana de 48 horas para votar.
                 En el inicio del ranking aparece un timer por cada juntada con votación abierta.
               </small>
             </div>
@@ -2008,7 +2008,7 @@ function Rules() {
             <div>
               <strong>Votación incompleta</strong>
               <small>
-                Si un asistente no completa todos los votos obligatorios dentro de las 72 horas,
+                Si un asistente no completa todos los votos obligatorios dentro de las 48 horas,
                 recibe una penalización de −5 puntos para esa juntada.
               </small>
             </div>
@@ -2031,7 +2031,7 @@ function Rules() {
               <strong>Edición de votos</strong>
               <small>
                 Un voto ya guardado puede editarse todas las veces que sea necesario mientras siga abierta
-                la ventana de 72 horas. Al vencer el plazo queda bloqueado y pasa a ser solo de lectura.
+                la ventana de 48 horas. Al vencer el plazo queda bloqueado y pasa a ser solo de lectura.
               </small>
             </div>
           </div>

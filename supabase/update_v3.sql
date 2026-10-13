@@ -1,6 +1,6 @@
 -- Liga de Juntadas v3
 -- Ejecutar UNA sola vez en Supabase > SQL Editor.
--- Agrega cierre de juntada + plazo de 72 horas y endurece las reglas de votación.
+-- Agrega cierre de juntada + plazo de 48 horas y endurece las reglas de votación.
 
 alter table public.events
 add column if not exists closed_at timestamptz;
@@ -15,7 +15,7 @@ where is_closed = false;
 -- 2) impiden auto-voto;
 -- 3) exigen que votante y votado hayan asistido;
 -- 4) permiten votar solo cuando la juntada está cerrada;
--- 5) bloquean votos luego de 72 horas.
+-- 5) bloquean votos luego de 48 horas.
 
 drop policy if exists "votes_own_insert" on public.votes;
 drop policy if exists "votes_own_update" on public.votes;
@@ -33,7 +33,7 @@ with check (
     where e.id = votes.event_id
       and e.is_closed = true
       and e.closed_at is not null
-      and now() <= e.closed_at + interval '72 hours'
+      and now() <= e.closed_at + interval '48 hours'
   )
   and exists (
     select 1
@@ -65,7 +65,7 @@ with check (
     where e.id = votes.event_id
       and e.is_closed = true
       and e.closed_at is not null
-      and now() <= e.closed_at + interval '72 hours'
+      and now() <= e.closed_at + interval '48 hours'
   )
   and exists (
     select 1
@@ -89,5 +89,5 @@ with check (
 
 -- Nota:
 -- La penalización de -5 por no completar todos los votos se calcula
--- automáticamente en la app cuando ya vencieron las 72 horas.
+-- automáticamente en la app cuando ya vencieron las 48 horas.
 -- No requiere cron ni tareas pagas.
