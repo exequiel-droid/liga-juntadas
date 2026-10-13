@@ -190,6 +190,10 @@ function weightedScore(values: Record<CategoryKey, number>) {
   return categories.reduce((sum, c) => sum + values[c.key] * c.weight, 0);
 }
 
+function formatRankingScore(value: number) {
+  return (Number(value || 0) * 10).toFixed(1);
+}
+
 function average(nums: number[]) {
   if (!nums.length) return 0;
   return nums.reduce((a, b) => a + b, 0) / nums.length;
@@ -1136,6 +1140,133 @@ export default function Home() {
   const myProgress = currentEvent && userId ? votingProgress(currentEvent.id, userId) : null;
   const currentDeadline = currentEvent ? deadlineFor(currentEvent) : null;
 
+  const selectedHistorySeason =
+    seasons.find((season) => season.id === historySeasonId) ??
+    activeSeason ??
+    seasons[0] ??
+    null;
+
+  const historySeasonEvents = selectedHistorySeason
+    ? events.filter((event) => event.season_id === selectedHistorySeason.id)
+    : [];
+
+  const seasonPlayerDetails = profiles
+    .map((profile) => {
+      const seasonEventScores = historySeasonEvents
+        .map((event) => eventFinalScore(event.id, profile.id))
+        .filter((score) => score.voteCount > 0);
+
+      const performanceAvg = seasonEventScores.length
+        ? seasonEventScores.reduce((sum, score) => sum + score.score, 0) /
+          seasonEventScores.length
+        : 0;
+
+      const categoryAverages = Object.fromEntries(
+        categories.map((category) => {
+          const validValues = seasonEventScores
+            .map((score) => score.categoryScores?.[category.key])
+            .filter((value): value is number => typeof value === "number");
+
+          const avg = validValues.length
+            ? validValues.reduce((sum, value) => sum + value, 0) / validValues.length
+            : 0;
+
+          return [category.key, avg];
+        })
+      ) as Record<CategoryKey, number>;
+
+      const seasonAttendance = attendance.filter(
+        (row) =>
+          row.profile_id === profile.id &&
+          historySeasonEvents.some((event) => event.id === row.event_id)
+      );
+
+      const presentCount = seasonAttendance.filter((row) => row.status === "present").length;
+      const justifiedCount = seasonAttendance.filter((row) => row.status === "justified").length;
+      const unjustifiedCount = seasonAttendance.filter((row) => row.status === "unjustified").length;
+      const attendancePct = seasonAttendance.length
+        ? (presentCount / seasonAttendance.length) * 100
+        : 0;
+
+      let missedVotingCount = 0;
+
+      historySeasonEvents.forEach((event) => {
+        if (!event.is_closed || !event.closed_at || !isDeadlineExpired(event)) return;
+
+        const wasPresent = attendance.some(
+          (row) =>
+            row.event_id === event.id &&
+            row.profile_id === profile.id &&
+            row.status === "present"
+        );
+
+        if (!wasPresent) return;
+
+        const presentIds = attendance
+          .filter((row) => row.event_id === event.id && row.status === "present")
+          .map((row) => row.profile_id);
+
+        const requiredTargets = presentIds.filter((id) => id !== profile.id);
+
+        const completedTargets = new Set(
+          votes
+            .filter(
+              (vote) =>
+                vote.event_id === event.id &&
+                vote.voter_id === profile.id &&
+                requiredTargets.includes(vote.target_id)
+            )
+            .map((vote) => vote.target_id)
+        );
+
+        if (completedTargets.size < requiredTargets.length) {
+          missedVotingCount += 1;
+        }
+      });
+
+      const missedVotingPenalty = missedVotingCount * MISSED_VOTING_AVG_PENALTY;
+      const unjustifiedPenalty = unjustifiedCount * UNJUSTIFIED_AVG_PENALTY;
+
+      const seasonAdjustments = adjustments.filter(
+        (adjustment) =>
+          adjustment.profile_id === profile.id &&
+          historySeasonEvents.some((event) => event.id === adjustment.event_id)
+      );
+
+      const adjustmentTotal = seasonAdjustments.reduce(
+        (sum, adjustment) => sum + Number(adjustment.points || 0),
+        0
+      );
+
+      const rankingAverage = Math.max(
+        0,
+        performanceAvg + missedVotingPenalty + unjustifiedPenalty
+      );
+
+      return {
+        ...profile,
+        performanceAvg,
+        rankingAverage,
+        categoryAverages,
+        presentCount,
+        justifiedCount,
+        unjustifiedCount,
+        attendancePct,
+        missedVotingCount,
+        missedVotingPenalty,
+        unjustifiedPenalty,
+        adjustmentTotal,
+        scoredEvents: seasonEventScores.length,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.rankingAverage - a.rankingAverage ||
+        b.attendancePct - a.attendancePct ||
+        b.performanceAvg - a.performanceAvg
+    );
+
+
   return (
     <main className="shell">
       <header className="topbar">
@@ -1874,75 +2005,245 @@ export default function Home() {
       )}
 
       {tab === "history" && (
-        <section className="card">
-          <div className="section-head">
-            <div>
-              <h2>🏛️ Historial de temporadas</h2>
-              <p className="muted">Las temporadas cerradas conservan la tabla final y sus premios tal como terminaron.</p>
+        <>
+          <section className="card">
+            <div className="section-head">
+              <div>
+                <h2>🏛️ Historial de temporadas</h2>
+                <p className="muted">
+                  Consultá la temporada actual o cualquier temporada anterior con todo el detalle.
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="season-history-list">
-            {seasons.map((season) => {
-              const standings = season.final_standings ?? [];
-              const awards = season.awards ?? {};
-              const seasonEventCount = events.filter((event) => event.season_id === season.id).length;
-              return (
-                <div className={`season-history-card ${season.is_active ? "active" : ""}`} key={season.id}>
-                  <div className="season-history-head">
-                    <div>
-                      <h3>{season.emoji} {season.name}</h3>
-                      <small>
-                        {season.is_active ? "🟢 Temporada actual" : season.closed_at ? `🏁 Cerrada ${formatDateTime(season.closed_at)}` : "⚪ Sin iniciar"}
-                        {` · ${seasonEventCount} juntadas`}
-                      </small>
-                    </div>
-                    {season.is_active && <span className="season-active-badge">EN JUEGO</span>}
+            <div className="season-history-selector">
+              <label>
+                Temporada
+                <select
+                  value={selectedHistorySeason?.id ?? ""}
+                  onChange={(e) => setHistorySeasonId(e.target.value)}
+                >
+                  {seasons.map((season) => (
+                    <option key={season.id} value={season.id}>
+                      {season.emoji} {season.name}
+                      {season.is_active ? " · ACTUAL" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {selectedHistorySeason ? (
+              <>
+                <div className="season-summary-card">
+                  <div>
+                    <h3>
+                      {selectedHistorySeason.emoji} {selectedHistorySeason.name}
+                    </h3>
+                    <small className="muted">
+                      {selectedHistorySeason.is_active
+                        ? "🟢 Temporada en curso"
+                        : selectedHistorySeason.closed_at
+                        ? `🏁 Cerrada ${formatDateTime(selectedHistorySeason.closed_at)}`
+                        : "⚪ Sin iniciar"}
+                      {` · ${historySeasonEvents.length} juntadas`}
+                    </small>
                   </div>
-
-                  {season.closed_at && standings.length > 0 ? (
-                    <>
-                      <div className="season-podium">
-                        {standings.slice(0, 3).map((row) => (
-                          <div className="season-podium-row" key={row.profile_id}>
-                            <span>{row.position === 1 ? "🥇" : row.position === 2 ? "🥈" : "🥉"}</span>
-                            <strong>{row.emoji} {row.name}</strong>
-                            <span>{row.ranking_average.toFixed(1)}</span>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="season-awards">
-                        {awards.champion && <span>🏆 Campeón: <strong>{awards.champion.emoji} {awards.champion.name}</strong></span>}
-                        {awards.ghost && <span>👻 El Fantasma: <strong>{awards.ghost.emoji} {awards.ghost.name}</strong></span>}
-                        {awards.democracy_zero && <span>🗳️ Democracia Cero: <strong>{awards.democracy_zero.emoji} {awards.democracy_zero.name}</strong></span>}
-                        {awards.cleaning && <span>🧼 Don Limpieza: <strong>{awards.cleaning.emoji} {awards.cleaning.name}</strong></span>}
-                        {awards.collaboration && <span>🛒 El Abastecedor: <strong>{awards.collaboration.emoji} {awards.collaboration.name}</strong></span>}
-                        {awards.behavior && <span>🤝 Señor Convivencia: <strong>{awards.behavior.emoji} {awards.behavior.name}</strong></span>}
-                        {awards.attitude && <span>🎉 Alma de la Juntada: <strong>{awards.attitude.emoji} {awards.attitude.name}</strong></span>}
-                      </div>
-
-                      <details className="season-full-table">
-                        <summary>Ver tabla final completa</summary>
-                        {standings.map((row) => (
-                          <div className="mini-row" key={row.profile_id}>
-                            <span>#{row.position}</span>
-                            <span className="grow">{row.emoji} <strong>{row.name}</strong><small>Prom. general {row.performance_avg.toFixed(1)} · Asistencia {row.attendance_pct.toFixed(0)}%</small></span>
-                            <strong>{row.ranking_average.toFixed(1)}</strong>
-                          </div>
-                        ))}
-                      </details>
-                    </>
-                  ) : season.is_active ? (
-                    <div className="notice">Temporada en curso. El resultado final se congela cuando el Admin la cierre.</div>
-                  ) : (
-                    <div className="notice">Esta temporada todavía no fue iniciada.</div>
-                  )}
                 </div>
-              );
-            })}
-          </div>
-        </section>
+
+                <div className="season-detail-list">
+                  {seasonPlayerDetails.map((player, index) => (
+                    <details className="season-player-detail" key={player.id}>
+                      <summary>
+                        <span className="season-player-rank">#{index + 1}</span>
+                        <span className="season-player-name">
+                          {player.emoji} <strong>{player.name}</strong>
+                        </span>
+                        <span className="season-player-score">
+                          {formatRankingScore(player.rankingAverage)}
+                        </span>
+                      </summary>
+
+                      <div className="season-player-body">
+                        <div className="season-stat-grid">
+                          <div>
+                            <small>Promedio general</small>
+                            <strong>{formatRankingScore(player.performanceAvg)}</strong>
+                          </div>
+                          <div>
+                            <small>Promedio ranking</small>
+                            <strong>{formatRankingScore(player.rankingAverage)}</strong>
+                          </div>
+                          <div>
+                            <small>Asistencia</small>
+                            <strong>{player.attendancePct.toFixed(0)}%</strong>
+                          </div>
+                          <div>
+                            <small>Juntadas puntuadas</small>
+                            <strong>{player.scoredEvents}</strong>
+                          </div>
+                        </div>
+
+                        <div className="season-category-grid">
+                          {categories.map((category) => (
+                            <div key={category.key}>
+                              <span>{category.emoji}</span>
+                              <small>{category.label}</small>
+                              <strong>
+                                {formatRankingScore(player.categoryAverages[category.key] || 0)}
+                              </strong>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="season-penalty-grid">
+                          <div>
+                            <span>✅ Presentes</span>
+                            <strong>{player.presentCount}</strong>
+                          </div>
+                          <div>
+                            <span>🟡 Justificables</span>
+                            <strong>{player.justifiedCount}</strong>
+                          </div>
+                          <div>
+                            <span>🔴 No justificables</span>
+                            <strong>
+                              {player.unjustifiedCount}
+                              {" · "}
+                              {formatRankingScore(player.unjustifiedPenalty)}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>🗳️ No votó</span>
+                            <strong>
+                              {player.missedVotingCount}
+                              {" · "}
+                              {formatRankingScore(player.missedVotingPenalty)}
+                            </strong>
+                          </div>
+                          <div>
+                            <span>⚡ Bonus/Malus</span>
+                            <strong>
+                              {player.adjustmentTotal >= 0 ? "+" : ""}
+                              {player.adjustmentTotal}
+                            </strong>
+                          </div>
+                        </div>
+
+                        <div className="season-ranking-formula">
+                          🏆 Ranking: {formatRankingScore(player.performanceAvg)}
+                          {player.missedVotingPenalty !== 0 && (
+                            <> {formatRankingScore(player.missedVotingPenalty)}</>
+                          )}
+                          {player.unjustifiedPenalty !== 0 && (
+                            <> {formatRankingScore(player.unjustifiedPenalty)}</>
+                          )}
+                          {" = "}
+                          <strong>{formatRankingScore(player.rankingAverage)}</strong>
+                        </div>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+
+                {!selectedHistorySeason.is_active &&
+                  selectedHistorySeason.final_standings &&
+                  selectedHistorySeason.final_standings.length > 0 && (
+                    <div className="season-closed-note">
+                      🧊 Esta temporada está cerrada. El podio y los premios quedaron congelados
+                      tal como terminaron.
+                    </div>
+                  )}
+              </>
+            ) : (
+              <div className="notice">Todavía no hay temporadas.</div>
+            )}
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <div>
+                <h2>⚡ Registro de Bonus / Malus</h2>
+                <p className="muted">
+                  Historial completo de ajustes manuales con jugador, temporada, juntada y motivo.
+                </p>
+              </div>
+            </div>
+
+            <div className="bonus-history-filters">
+              <label>
+                Jugador
+                <select
+                  value={bonusHistoryProfileFilter}
+                  onChange={(e) => setBonusHistoryProfileFilter(e.target.value)}
+                >
+                  <option value="all">Todos</option>
+                  {profiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>
+                      {profile.emoji} {profile.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Temporada
+                <select
+                  value={bonusHistorySeasonFilter}
+                  onChange={(e) => setBonusHistorySeasonFilter(e.target.value)}
+                >
+                  <option value="all">Todas</option>
+                  {seasons.map((season) => (
+                    <option key={season.id} value={season.id}>
+                      {season.emoji} {season.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {bonusMalusHistory.length === 0 ? (
+              <div className="notice">
+                Todavía no hay Bonus/Malus para los filtros seleccionados.
+              </div>
+            ) : (
+              <div className="bonus-history-list">
+                {bonusMalusHistory.map((item) => (
+                  <div className="bonus-history-row" key={item.id}>
+                    <div className="bonus-history-main">
+                      <div className="bonus-history-user">
+                        <span className="bonus-history-avatar">{item.profileEmoji}</span>
+                        <div>
+                          <strong>{item.profileName}</strong>
+                          <small>
+                            {item.seasonName} · {item.eventName}
+                          </small>
+                        </div>
+                      </div>
+
+                      <div
+                        className={`bonus-history-points ${
+                          Number(item.points) >= 0 ? "positive" : "negative"
+                        }`}
+                      >
+                        {Number(item.points) >= 0 ? "+" : ""}
+                        {Number(item.points)}
+                      </div>
+                    </div>
+
+                    <div className="bonus-history-reason">
+                      {item.description || "Sin descripción"}
+                    </div>
+
+                    <div className="bonus-history-meta muted tiny">
+                      {item.eventDate ? formatDate(item.eventDate) : "Sin fecha"}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
       )}
 
       {tab === "rules" && <Rules />}

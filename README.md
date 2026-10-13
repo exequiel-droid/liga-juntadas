@@ -1239,3 +1239,55 @@ Antes del push:
 ```bash
 npm.cmd run build
 ```
+
+
+## v11.4 — Historial completo también para la temporada en curso
+
+La pestaña Historial ahora abre por defecto sobre la temporada activa y permite cambiar a cualquier temporada anterior.
+
+Cada jugador muestra:
+
+- posición;
+- Promedio general;
+- Promedio de ranking;
+- asistencia;
+- juntadas puntuadas;
+- promedio final de Colaboración;
+- promedio final de Limpieza;
+- promedio final de Comportamiento;
+- promedio final de Actitud;
+- presentes;
+- faltas justificables;
+- faltas no justificables + penalización;
+- incumplimientos de votación + penalización;
+- Bonus/Malus acumulado;
+- fórmula final del ranking.
+
+Los promedios se muestran siempre sobre 100 con un decimal:
+
+```text
+81.7
+74.2
+99.9
+100.0
+```
+
+La lógica interna sigue en 0–10 para preservar compatibilidad.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+No requiere SQL nuevo.
+
+Antes del push:
+
+```bash
+npm.cmd run build
+```
