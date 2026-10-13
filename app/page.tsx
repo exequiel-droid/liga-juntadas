@@ -61,8 +61,8 @@ type Vote = {
 
 const supabase = createClient();
 
-const UNJUSTIFIED_AVG_PENALTY = -0.3;
-const MISSED_VOTING_AVG_PENALTY = -0.5;
+const UNJUSTIFIED_AVG_PENALTY = -0.7;
+const MISSED_VOTING_AVG_PENALTY = -1.0;
 const VOTING_HOURS = 48;
 const OUTLIER_THRESHOLD = 3;
 const SUSPICIOUS_THRESHOLD = 4;
@@ -1086,7 +1086,7 @@ export default function Home() {
                               <strong>{item.profile.name}</strong>
                               <small>{item.completed}/{item.required} completados · faltan {item.missing}</small>
                             </div>
-                            {expired && <span className="penalty-chip">−0,5 prom.</span>}
+                            {expired && <span className="penalty-chip">−1,0 prom.</span>}
                           </div>
                         </div>
                       ))}
@@ -1158,16 +1158,33 @@ export default function Home() {
                       Promedio general {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
                       {" · "}{r.scoredEvents} juntadas puntuadas
                     </div>
-                    <div className="muted tiny">
-                      Puntos ajustados {r.rankingAverage.toFixed(1)}
-                      {" · "}Bonus/Malus {r.adjustment >= 0 ? "+" : ""}{r.adjustment}
-                      {r.unjustifiedAbsenceCount > 0 && <> · ausencias no justificables {r.unjustifiedAbsenceAvgPenalty.toFixed(1)}</>}
-                      {r.missedVotingCount > 0 && <> · no votar {r.missedVotingAvgPenalty.toFixed(1)}</>}
+
+                    <div className="ranking-penalties">
+                      <span className={`penalty-detail ${r.missedVotingCount === 0 ? "neutral" : ""}`}>
+                        🗳️ No votar: <strong>{r.missedVotingAvgPenalty.toFixed(1)}</strong>
+                        {" "}({r.missedVotingCount})
+                      </span>
+
+                      <span className={`penalty-detail ${r.unjustifiedAbsenceCount === 0 ? "neutral" : ""}`}>
+                        🔴 No justificables: <strong>{r.unjustifiedAbsenceAvgPenalty.toFixed(1)}</strong>
+                        {" "}({r.unjustifiedAbsenceCount})
+                      </span>
+
+                      <span className="penalty-detail bonus">
+                        ⚡ Bonus/Malus: <strong>{r.adjustment >= 0 ? "+" : ""}{r.adjustment}</strong>
+                      </span>
+                    </div>
+
+                    <div className="muted tiny ranking-formula-line">
+                      🏆 Promedio ranking: {r.performanceAvg.toFixed(1)}
+                      {r.missedVotingAvgPenalty !== 0 && <> {r.missedVotingAvgPenalty.toFixed(1)}</>}
+                      {r.unjustifiedAbsenceAvgPenalty !== 0 && <> {r.unjustifiedAbsenceAvgPenalty.toFixed(1)}</>}
+                      {" = "}<strong>{r.rankingAverage.toFixed(1)}</strong>
                     </div>
                   </div>
                   <div className="points">
-                    <strong>{r.performanceAvg.toFixed(1)}</strong>
-                    <small>prom.</small>
+                    <strong>{r.rankingAverage.toFixed(1)}</strong>
+                    <small>ranking</small>
                   </div>
                 </div>
               ))
@@ -1755,7 +1772,7 @@ function AdminPerson({
         <div className="reason-row">
           <input disabled={attendanceLocked} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Motivo de la inasistencia..." />
           <button disabled={attendanceLocked} className="secondary" onClick={()=>onAttendance(profile.id,attendance.status,reason)}>Guardar motivo</button>
-          {attendance.status==="unjustified" && <span className="penalty-chip">−0,3 prom. obligatorio</span>}
+          {attendance.status==="unjustified" && <span className="penalty-chip">−0,7 prom. obligatorio</span>}
         </div>
       )}
 
@@ -1892,7 +1909,7 @@ function Rules() {
           <div><span>🔒</span><div><strong>Cierre de la juntada</strong><small>El Admin confirma asistencias y cierra la fecha. Desde ese momento comienza el plazo de votación.</small></div></div>
           <div><span>2️⃣</span><div><strong>48 horas</strong><small>Cada asistente tiene 2 días para puntuar a todos los demás asistentes.</small></div></div>
           <div><span>🚫</span><div><strong>Quiénes pueden votar</strong><small>Solo pueden votar quienes estuvieron marcados como presentes en esa juntada. Además, únicamente pueden puntuar a otros asistentes presentes. Quien faltó no puede votar esa fecha.</small></div></div>
-          <div><span>−5</span><div><strong>Votación incompleta (−0,5 al promedio)</strong><small>Si al vencer las 48 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
+          <div><span>−5</span><div><strong>Votación incompleta (−1,0 al promedio)</strong><small>Si al vencer las 48 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
           <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 48 horas los votos de esa fecha quedan bloqueados.</small></div></div>
         </div>
       </section>
@@ -1913,7 +1930,35 @@ function Rules() {
           Estas son las reglas que usa la Liga de Juntadas para asistencia, votaciones, ranking y sanciones.
         </p>
 
-        <div className="rule-lines">
+        
+        <div className="metric-explainer">
+          <h3>📌 Qué significa cada número</h3>
+          <div className="metric-explainer-grid">
+            <div>
+              <strong>Promedio general</strong>
+              <small>
+                Es el promedio puro de rendimiento obtenido a partir de las cuatro categorías:
+                Colaboración, Limpieza, Comportamiento y Actitud. No incluye sanciones.
+              </small>
+            </div>
+            <div>
+              <strong>Promedio de ranking</strong>
+              <small>
+                Es el Promedio general menos las sanciones directas por no votar y por faltas no justificables.
+                Este es el valor que define la posición en la tabla.
+              </small>
+            </div>
+            <div>
+              <strong>Puntos ajustados</strong>
+              <small>
+                Son un dato adicional para mostrar otros efectos de la temporada, como Bonus/Malus y ajustes.
+                No ordenan el ranking principal.
+              </small>
+            </div>
+          </div>
+        </div>
+
+<div className="rule-lines">
           <div>
             <span>🎚️</span>
             <div>
@@ -1944,8 +1989,8 @@ function Rules() {
             <div>
               <strong>Promedio de ranking</strong>
               <small>
-                Es el promedio bruto menos 0,5 por cada juntada en la que no completaste los votos dentro de 48 horas
-                y menos 0,3 por cada ausencia no justificable. Ese valor define la posición en la tabla.
+                Es el promedio bruto menos 1,0 por cada juntada en la que no completaste los votos dentro de 48 horas
+                y menos 0,7 por cada ausencia no justificable. Ese valor define la posición en la tabla.
               </small>
             </div>
           </div>
@@ -2019,9 +2064,9 @@ function Rules() {
           <div>
             <span>🔴</span>
             <div>
-              <strong>Ausencia no justificable (−0,3 al promedio)</strong>
+              <strong>Ausencia no justificable (−0,7 al promedio)</strong>
               <small>
-                Cuenta como ausencia y aplica una penalización de −0,3 puntos directos sobre el promedio de ranking por cada ausencia no justificable.
+                Cuenta como ausencia y aplica una penalización severa de −0,7 puntos directos sobre el promedio de ranking por cada ausencia no justificable.
               </small>
             </div>
           </div>
@@ -2051,10 +2096,10 @@ function Rules() {
           <div>
             <span>−5</span>
             <div>
-              <strong>Votación incompleta (−0,5 al promedio)</strong>
+              <strong>Votación incompleta (−1,0 al promedio)</strong>
               <small>
                 Si un asistente no completa todos los votos obligatorios dentro de las 48 horas,
-                recibe una penalización de −0,5 puntos directos sobre su promedio de ranking por cada juntada incumplida.
+                recibe una penalización severa de −1,0 punto directo sobre su promedio de ranking por cada juntada incumplida.
               </small>
             </div>
           </div>

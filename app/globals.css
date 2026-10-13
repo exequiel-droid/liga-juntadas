@@ -425,3 +425,72 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   border-radius:999px;padding:5px 8px;
 }
 .ranking-lock-note{margin-top:12px;color:var(--muted);font-size:11px}
+
+
+/* v10: explicación de métricas */
+.metric-explainer{
+  margin:14px 0;
+  padding:14px;
+  border:1px solid var(--line);
+  background:#121721;
+  border-radius:16px;
+}
+.metric-explainer h3{
+  margin:0 0 10px;
+  font-size:15px;
+}
+.metric-explainer-grid{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:10px;
+}
+.metric-explainer-grid > div{
+  padding:10px;
+  border-radius:12px;
+  background:#0f141d;
+  border:1px solid var(--line);
+}
+.metric-explainer-grid strong{
+  display:block;
+  margin-bottom:4px;
+}
+.metric-explainer-grid small{
+  color:var(--muted);
+  line-height:1.4;
+}
+@media(max-width:760px){
+  .metric-explainer-grid{grid-template-columns:1fr}
+}
+
+
+/* v10.1: desglose de sanciones dentro del ranking */
+.ranking-penalties{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  margin-top:6px;
+}
+.penalty-detail{
+  display:inline-flex;
+  align-items:center;
+  gap:3px;
+  padding:4px 7px;
+  border-radius:999px;
+  font-size:10px;
+  border:1px solid rgba(255,93,115,.28);
+  background:rgba(255,93,115,.08);
+  color:#ffc3cc;
+}
+.penalty-detail.neutral{
+  border-color:var(--line);
+  background:rgba(255,255,255,.025);
+  color:var(--muted);
+}
+.penalty-detail.bonus{
+  border-color:rgba(124,92,255,.28);
+  background:rgba(124,92,255,.08);
+  color:#d9d1ff;
+}
+.ranking-formula-line{
+  margin-top:6px;
+}

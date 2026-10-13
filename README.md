@@ -1014,3 +1014,95 @@ git add .
 git commit -m "Corregir build ranking asistencia"
 git push
 ```
+
+
+## v10 — Penalizaciones severas + explicación de métricas
+
+### Penalizaciones
+
+- No completar todos los votos dentro de 48 h: **−1,0 directo al promedio de ranking por juntada**.
+- Ausencia no justificable: **−0,7 directo al promedio de ranking por ausencia**.
+- Ausencia justificable: **sin penalización directa**.
+
+Las penalizaciones son acumulativas y no se normalizan.
+
+Ejemplo:
+
+```text
+Promedio general:                 8,6
+1 votación incompleta            -1,0
+1 ausencia no justificable       -0,7
+Promedio de ranking:              6,9
+```
+
+### Qué significa cada métrica
+
+**Promedio general**
+- Es el promedio puro de rendimiento.
+- Sale de Colaboración, Limpieza, Comportamiento y Actitud.
+- No incluye sanciones.
+
+**Promedio de ranking**
+- Es el Promedio general menos las sanciones.
+- Es el valor que ordena la tabla principal.
+
+**Puntos ajustados**
+- Son un dato adicional.
+- Sirven para mostrar otros efectos como Bonus/Malus y ajustes.
+- No determinan la posición principal.
+
+### SQL
+
+No hay cambios de estructura nuevos. El `update_v9.sql` de esta versión solo actualiza documentación/comentarios de las reglas.
+
+### Publicación
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+supabase/update_v9.sql
+```
+
+Después:
+
+```bash
+npm.cmd run build
+```
+
+Y si compila:
+
+```bash
+git add .
+git commit -m "Endurecer sanciones y explicar metricas"
+git push
+```
+
+
+## v10.1 — Desglose de sanciones en la tabla del ranking
+
+Cada jugador muestra directamente:
+
+- Promedio general.
+- Asistencia.
+- Cantidad de juntadas puntuadas.
+- 🗳️ Penalización por no votar y cantidad de incumplimientos.
+- 🔴 Penalización por ausencias no justificables y cantidad.
+- ⚡ Bonus/Malus como dato adicional.
+- 🏆 Promedio de ranking final.
+
+Ejemplo:
+
+```text
+Promedio general 8,6 · Asistencia 80% · 4 juntadas
+🗳️ No votar −1,0 (1)
+🔴 No justificables −0,7 (1)
+⚡ Bonus/Malus +5
+🏆 Promedio ranking: 8,6 −1,0 −0,7 = 6,9
+```
+
+El número destacado a la derecha ahora es el **Promedio de ranking**, que es el valor que realmente define la posición.
+
+No requiere SQL adicional respecto de v10.
