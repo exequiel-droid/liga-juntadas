@@ -221,3 +221,100 @@ git push
 - Texto visible: `Justificada / Sin justificar` pasa a `Justificable / No justificable`.
 - La lógica interna no cambia: Justificable no penaliza; No justificable resta 10 puntos.
 - No requiere SQL nuevo.
+
+
+## v6.1 — Timer de cierre de votaciones
+
+En el inicio del Ranking se agregó **⏳ Cierre de votaciones**.
+
+Por cada juntada que tenga la votación abierta muestra:
+
+- nombre de la juntada;
+- contador en vivo;
+- días, horas, minutos y segundos restantes;
+- fecha/hora exacta de cierre.
+
+Ejemplo:
+
+```text
+🍖 Asado en lo de Pagis.tv
+Cierra en
+2 días · 04:18:36
+```
+
+Cuando el contador llega a cero, la juntada deja de aparecer entre las votaciones abiertas y las reglas existentes bloquean nuevos votos.
+
+No hace falta SQL nuevo.
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+
+## v7 — Control fuerte de votos dudosos
+
+### Niveles
+
+- 🟢 **Normal**: entra directo al cálculo.
+- 🟡 **Atípico**: más de 3 puntos de diferencia respecto del promedio del resto. Se guarda y queda visible para control.
+- 🔴 **Dudoso**:
+  - más de 4 puntos de diferencia respecto del promedio del resto, con al menos 2 votos comparables; o
+  - patrón extremo `1/1/1/1` o `10/10/10/10`.
+
+Un voto dudoso:
+1. exige explicación obligatoria;
+2. queda `pending`;
+3. no computa en el ranking;
+4. el Admin puede aprobarlo o rechazarlo.
+
+### Estados
+- `approved`: computa.
+- `pending`: no computa.
+- `rejected`: queda registrado pero no computa.
+
+### Importante: SQL obligatorio
+
+En Supabase → SQL Editor ejecutá:
+
+```text
+supabase/update_v7.sql
+```
+
+Este parche:
+- agrega campos de revisión a `votes`;
+- permite al Admin aprobar/rechazar;
+- agrega un trigger para que un usuario no pueda saltearse la regla desde el navegador.
+
+### Actualización
+
+Reemplazá:
+
+```text
+app/page.tsx
+app/globals.css
+README.md
+```
+
+y guardá:
+
+```text
+supabase/update_v7.sql
+```
+
+Después:
+
+```bash
+npm.cmd run dev
+```
+
+Si funciona:
+
+```bash
+git add .
+git commit -m "Control de votos dudosos con aprobacion admin"
+git push
+```

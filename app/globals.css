@@ -147,3 +147,93 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
   .timer-grid{grid-template-columns:1fr}
   .timer-value{font-size:25px}
 }
+
+
+/* v7: control de votos dudosos */
+.vote-warning{
+  margin:10px 0;
+  padding:11px;
+  border-radius:13px;
+  font-size:12px;
+}
+.vote-warning.atypical{
+  background:rgba(255,181,71,.10);
+  border:1px solid rgba(255,181,71,.30);
+  color:#ffe0a6;
+}
+.vote-warning.suspicious{
+  background:rgba(255,93,115,.09);
+  border:1px solid rgba(255,93,115,.32);
+  color:#ffd1d8;
+}
+.warning-details{margin-top:7px;display:grid;gap:3px}
+.review-comment{
+  width:100%;
+  min-height:78px;
+  resize:vertical;
+  margin-top:10px;
+  background:#0f131a;
+  color:#fff;
+  border:1px solid var(--line);
+  border-radius:12px;
+  padding:10px;
+  font:inherit;
+}
+.review-badge{
+  display:inline-flex;
+  align-items:center;
+  border-radius:999px;
+  padding:4px 7px;
+  font-size:10px;
+  font-weight:900;
+  white-space:nowrap;
+}
+.review-badge.pending{
+  background:rgba(255,181,71,.12);
+  color:var(--amber);
+  border:1px solid rgba(255,181,71,.30);
+}
+.review-badge.rejected{
+  background:rgba(255,93,115,.10);
+  color:#ff9cab;
+  border:1px solid rgba(255,93,115,.30);
+}
+.review-badge.approved{
+  background:rgba(32,201,151,.10);
+  color:#b9f5e4;
+  border:1px solid rgba(32,201,151,.30);
+}
+.review-queue{display:grid;gap:10px}
+.review-card{
+  border:1px solid rgba(255,93,115,.28);
+  background:#121721;
+  border-radius:16px;
+  padding:13px;
+}
+.review-card-head{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:center;
+}
+.review-reason{
+  margin-top:10px;
+  padding:9px 10px;
+  border-radius:12px;
+  background:var(--soft);
+  font-size:12px;
+}
+.review-reason span{color:var(--muted)}
+.review-actions{display:flex;gap:8px;margin-top:10px}
+.approve-btn{
+  border:0;
+  border-radius:12px;
+  padding:10px 13px;
+  font-weight:900;
+  background:var(--green);
+  color:#071812;
+}
+@media(max-width:760px){
+  .review-card-head{align-items:flex-start;flex-direction:column}
+  .review-actions button{flex:1}
+}

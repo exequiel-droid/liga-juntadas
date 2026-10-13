@@ -42,6 +42,8 @@ type Adjustment = {
   description: string;
 };
 
+type VoteReviewStatus = "approved" | "pending" | "rejected";
+
 type Vote = {
   id: string;
   event_id: string;
@@ -51,6 +53,10 @@ type Vote = {
   cleaning: number;
   behavior: number;
   attitude: number;
+  review_status: VoteReviewStatus;
+  review_comment: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
 };
 
 const supabase = createClient();
@@ -59,6 +65,7 @@ const UNJUSTIFIED_PENALTY = -10;
 const MISSED_VOTING_PENALTY = -5;
 const VOTING_HOURS = 72;
 const OUTLIER_THRESHOLD = 3;
+const SUSPICIOUS_THRESHOLD = 4;
 
 const categories: Array<{
   key: CategoryKey;
@@ -143,6 +150,11 @@ function trimmedAverage(nums: number[]) {
   return average(sorted.slice(1, -1));
 }
 
+function suspiciousPattern(values: Record<CategoryKey, number>) {
+  const nums = categories.map((c) => Number(values[c.key]));
+  return nums.every((n) => n === 1) || nums.every((n) => n === 10);
+}
+
 export default function Home() {
   const [sessionReady, setSessionReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
@@ -173,6 +185,7 @@ export default function Home() {
 
   const [selectedEventId, setSelectedEventId] = useState("");
   const [voteDrafts, setVoteDrafts] = useState<Record<string, typeof defaultVote>>({});
+  const [voteComments, setVoteComments] = useState<Record<string, string>>({});
   const [now, setNow] = useState(() => Date.now());
 
   const isAdmin = me?.role === "admin";
@@ -448,6 +461,13 @@ export default function Home() {
     }
 
     const draft = voteDrafts[targetId] ?? defaultVote;
+    const reviewCheck = classifyVoteDraft(targetId, draft);
+    const reviewComment = (voteComments[targetId] ?? "").trim();
+
+    if (reviewCheck.level === "suspicious" && !reviewComment) {
+      return alert("Este voto fue detectado como dudoso. Tenés que explicar brevemente por qué elegiste esas notas.");
+    }
+
     const existing = votes.find(
       (x) =>
         x.event_id === selectedEventId &&
@@ -460,6 +480,7 @@ export default function Home() {
       voter_id: userId,
       target_id: targetId,
       ...draft,
+      review_comment: reviewCheck.level === "suspicious" ? reviewComment : null,
     };
 
     const result = existing
@@ -467,6 +488,23 @@ export default function Home() {
       : await supabase.from("votes").insert(payload);
 
     if (result.error) return alert(result.error.message);
+    setVoteComments((s) => ({ ...s, [targetId]: "" }));
+    await loadAll();
+  }
+
+  async function reviewVote(voteId: string, status: "approved" | "rejected") {
+    if (!isAdmin || !userId) return;
+
+    const { error } = await supabase
+      .from("votes")
+      .update({
+        review_status: status,
+        reviewed_by: userId,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq("id", voteId);
+
+    if (error) return alert(error.message);
     await loadAll();
   }
 
@@ -478,6 +516,43 @@ export default function Home() {
       .eq("id", profileId);
     if (error) return alert(error.message);
     await loadAll();
+  }
+
+  function classifyVoteDraft(targetId: string, draft: typeof defaultVote) {
+    const peerVotes = votes.filter(
+      (v) =>
+        v.event_id === selectedEventId &&
+        v.target_id === targetId &&
+        v.voter_id !== userId &&
+        v.review_status !== "rejected"
+    );
+
+    let level: "normal" | "atypical" | "suspicious" = "normal";
+    const details: Array<{ label: string; value: number; peerAverage: number; diff: number }> = [];
+
+    if (peerVotes.length >= 2) {
+      categories.forEach((c) => {
+        const peerAverage = average(peerVotes.map((v) => Number(v[c.key])));
+        const value = Number(draft[c.key]);
+        const diff = Math.abs(value - peerAverage);
+
+        if (diff > OUTLIER_THRESHOLD) {
+          details.push({ label: c.label, value, peerAverage, diff });
+        }
+
+        if (diff > SUSPICIOUS_THRESHOLD) {
+          level = "suspicious";
+        } else if (diff > OUTLIER_THRESHOLD && level !== "suspicious") {
+          level = "atypical";
+        }
+      });
+    }
+
+    if (suspiciousPattern(draft)) {
+      level = "suspicious";
+    }
+
+    return { level, details, peerCount: peerVotes.length };
   }
 
   function presentIdsForEvent(eventId: string) {
@@ -513,7 +588,12 @@ export default function Home() {
   }
 
   function eventCategoryAverages(eventId: string, targetId: string) {
-    const targetVotes = votes.filter((v) => v.event_id === eventId && v.target_id === targetId);
+    const targetVotes = votes.filter(
+      (v) =>
+        v.event_id === eventId &&
+        v.target_id === targetId &&
+        v.review_status === "approved"
+    );
     const result = {} as Record<CategoryKey, number>;
     categories.forEach((c) => {
       result[c.key] = trimmedAverage(targetVotes.map((v) => Number(v[c.key])));
@@ -587,12 +667,15 @@ export default function Home() {
       categories: Array<{ key: CategoryKey; label: string; value: number; peerAverage: number }>;
     }> = [];
 
-    votes.forEach((vote) => {
+    votes
+      .filter((vote) => vote.review_status !== "rejected")
+      .forEach((vote) => {
       const sameTarget = votes.filter(
         (v) =>
           v.event_id === vote.event_id &&
           v.target_id === vote.target_id &&
-          v.voter_id !== vote.voter_id
+          v.voter_id !== vote.voter_id &&
+          v.review_status !== "rejected"
       );
 
       if (sameTarget.length < 2) return;
@@ -910,6 +993,7 @@ export default function Home() {
                 const att = attendance.find(a=>a.event_id===selectedEventId && a.profile_id===p.id);
                 const existing = votes.find(v=>v.event_id===selectedEventId && v.voter_id===userId && v.target_id===p.id);
                 const draft = voteDrafts[p.id] ?? existing ?? defaultVote;
+                const reviewCheck = classifyVoteDraft(p.id, draft as typeof defaultVote);
                 const absent = att?.status !== "present";
                 const disabled = !currentEvent.is_closed || isDeadlineExpired(currentEvent) || absent;
 
@@ -918,7 +1002,21 @@ export default function Home() {
                     <div className="identity-line">
                       <div className="avatar">{p.emoji}</div>
                       <div><strong>{p.name}</strong><small>{p.title}</small></div>
-                      {existing && <span className="saved">✓ Voto guardado</span>}
+                      {existing && (
+                        <span className={
+                          existing.review_status === "pending"
+                            ? "review-badge pending"
+                            : existing.review_status === "rejected"
+                            ? "review-badge rejected"
+                            : "saved"
+                        }>
+                          {existing.review_status === "pending"
+                            ? "⏳ Pendiente de revisión"
+                            : existing.review_status === "rejected"
+                            ? "❌ Rechazado"
+                            : "✓ Voto guardado"}
+                        </span>
+                      )}
                     </div>
 
                     {absent ? (
@@ -948,6 +1046,37 @@ export default function Home() {
                             </div>
                           ))}
                         </div>
+
+                        {reviewCheck.level === "atypical" && (
+                          <div className="vote-warning atypical">
+                            🟡 Este voto se aleja bastante del promedio del resto. Se puede guardar, pero quedará marcado para el Admin.
+                          </div>
+                        )}
+
+                        {reviewCheck.level === "suspicious" && (
+                          <div className="vote-warning suspicious">
+                            <strong>🔴 Voto dudoso</strong>
+                            <div className="tiny">
+                              Estas notas son demasiado distintas al resto o forman un patrón extremo. Necesitás explicar el motivo y el voto quedará pendiente de aprobación.
+                            </div>
+                            {reviewCheck.details.length > 0 && (
+                              <div className="tiny warning-details">
+                                {reviewCheck.details.map((d) => (
+                                  <div key={d.label}>
+                                    {d.label}: pusiste <b>{d.value}</b> · promedio del resto <b>{d.peerAverage.toFixed(1)}</b>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <textarea
+                              className="review-comment"
+                              value={voteComments[p.id] ?? existing?.review_comment ?? ""}
+                              onChange={(e) => setVoteComments((s) => ({ ...s, [p.id]: e.target.value }))}
+                              placeholder="Explicá brevemente por qué corresponde este puntaje..."
+                            />
+                          </div>
+                        )}
+
                         <button className="primary" onClick={()=>saveVote(p.id)}>Guardar puntaje de {p.name}</button>
                       </>
                     )}
@@ -1138,6 +1267,45 @@ export default function Home() {
               votes={votes}
               profiles={profiles}
             />
+          </section>
+
+          <section className="card">
+            <h2>🛡️ Votos dudosos pendientes de aprobación</h2>
+            <p className="muted">Estos votos no cuentan para el ranking hasta que los apruebes.</p>
+
+            {votes.filter(v => v.event_id === selectedEventId && v.review_status === "pending").length === 0 ? (
+              <div className="success-box">✅ No hay votos dudosos pendientes.</div>
+            ) : (
+              <div className="review-queue">
+                {votes
+                  .filter(v => v.event_id === selectedEventId && v.review_status === "pending")
+                  .map(v => {
+                    const voter = profiles.find(p => p.id === v.voter_id);
+                    const target = profiles.find(p => p.id === v.target_id);
+                    return (
+                      <div className="review-card" key={v.id}>
+                        <div className="review-card-head">
+                          <strong>{voter?.emoji} {voter?.name} → {target?.emoji} {target?.name}</strong>
+                          <span className="review-badge pending">⏳ Pendiente</span>
+                        </div>
+                        <div className="vote-detail-scores">
+                          <span>🛒 {v.collaboration}</span>
+                          <span>🧹 {v.cleaning}</span>
+                          <span>🤝 {v.behavior}</span>
+                          <span>🎉 {v.attitude}</span>
+                        </div>
+                        <div className="review-reason">
+                          <span>💬 Motivo:</span> {v.review_comment || "Sin explicación"}
+                        </div>
+                        <div className="review-actions">
+                          <button className="approve-btn" onClick={() => reviewVote(v.id, "approved")}>✅ Aprobar</button>
+                          <button className="danger-btn" onClick={() => reviewVote(v.id, "rejected")}>❌ Rechazar</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            )}
           </section>
 
           <section className="card">
@@ -1332,7 +1500,16 @@ function VoteDetails({
               <strong>{voter?.emoji} {voter?.name}</strong>
               <span>→</span>
               <strong>{target?.emoji} {target?.name}</strong>
-              <b>{score.toFixed(1)}</b>
+              <span className={
+                v.review_status === "pending"
+                  ? "review-badge pending"
+                  : v.review_status === "rejected"
+                  ? "review-badge rejected"
+                  : "review-badge approved"
+              }>
+                {v.review_status === "pending" ? "Pendiente" : v.review_status === "rejected" ? "Rechazado" : "Aprobado"}
+              </span>
+              <b>{v.review_status === "approved" ? score.toFixed(1) : "—"}</b>
             </div>
             <div className="vote-detail-scores">
               <span>🛒 {v.collaboration}</span>
@@ -1389,7 +1566,9 @@ function Rules() {
         <h2>🛡️ Control de votos</h2>
         <div className="rule-lines">
           <div><span>✂️</span><div><strong>Promedio recortado</strong><small>Con 5 o más votos recibidos se elimina la nota más alta y la más baja de cada categoría antes de calcular el promedio.</small></div></div>
-          <div><span>⚠️</span><div><strong>Voto atípico</strong><small>Si una nota queda a más de 3 puntos del promedio de los demás, el Admin la ve marcada para revisión. No se elimina automáticamente.</small></div></div>
+          <div><span>⚠️</span><div><strong>Voto atípico</strong><small>Si una nota queda a más de 3 puntos del promedio de los demás, queda marcada para control.</small></div></div>
+          <div><span>🔴</span><div><strong>Voto dudoso</strong><small>Si una nota se aleja más de 4 puntos del promedio del resto, o si el voto tiene un patrón extremo como todo 1 o todo 10, exige una explicación y queda pendiente de aprobación del Admin. Mientras esté pendiente no entra en el ranking.</small></div></div>
+          <div><span>👑</span><div><strong>Revisión del Admin</strong><small>El Admin puede aprobar o rechazar un voto dudoso. Aprobado: computa normalmente. Rechazado: queda registrado pero no suma al puntaje.</small></div></div>
           <div><span>🙅</span><div><strong>Sin auto-voto</strong><small>Nadie puede puntuarse a sí mismo y solo los asistentes pueden votar.</small></div></div>
         </div>
       </section>
