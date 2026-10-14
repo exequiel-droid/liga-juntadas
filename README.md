@@ -1337,3 +1337,23 @@ git add .
 git commit -m "Corregir build historial de temporadas"
 git push
 ```
+
+
+## v11.7 — Bonus/Malus con factor 0,25
+
+Regla definitiva:
+
+```text
+Incidencia Bonus/Malus = puntos cargados × 0,25
+Puntaje final de la juntada = puntaje base + incidencia Bonus/Malus
+Promedio ajustado = promedio de los puntajes finales de las juntadas
+Promedio ranking = promedio ajustado − sanciones por no votar − faltas no justificables
+```
+
+Ejemplo: Bonus `+6` tiene incidencia `+1,5`. Base `81,7` → Final `83,2`.
+
+El Ranking muestra Promedio general, Promedio ajustado, Bonus/Malus total, incidencia real sobre el promedio y Promedio ranking.
+
+Historial muestra por fecha: Base → B/M cargado → Incidencia ×0,25 → Final.
+
+No requiere SQL nuevo.

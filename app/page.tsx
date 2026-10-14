@@ -29,6 +29,7 @@ type Season = {
     emoji: string;
     position: number;
     performance_avg: number;
+    adjusted_performance_avg?: number;
     ranking_average: number;
     attendance_pct: number;
     missed_voting_count: number;
@@ -192,6 +193,20 @@ function weightedScore(values: Record<CategoryKey, number>) {
 
 function formatRankingScore(value: number) {
   return (Number(value || 0) * 10).toFixed(1);
+}
+
+const BONUS_MALUS_FACTOR = 0.25;
+
+function clampScore(value: number) {
+  return Math.max(0, Math.min(10, value));
+}
+
+function bonusMalusImpactVisible(points: number) {
+  return Number(points || 0) * BONUS_MALUS_FACTOR;
+}
+
+function bonusMalusImpactInternal(points: number) {
+  return bonusMalusImpactVisible(points) / 10;
 }
 
 function average(nums: number[]) {
@@ -443,6 +458,7 @@ export default function Home() {
       emoji: row.emoji,
       position: index + 1,
       performance_avg: Number(row.performanceAvg.toFixed(2)),
+      adjusted_performance_avg: Number(row.adjustedPerformanceAvg.toFixed(2)),
       ranking_average: Number(row.rankingAverage.toFixed(2)),
       attendance_pct: Number(row.attendancePct.toFixed(2)),
       missed_voting_count: row.missedVotingCount,
@@ -904,11 +920,23 @@ export default function Home() {
     return profiles
       .map((p) => {
         const eventScores = eventList
-          .map((e) => eventFinalScore(e.id, p.id))
+          .map((e) => {
+            const base = eventFinalScore(e.id, p.id);
+            const eventAdjustment = adjustments
+              .filter((a) => a.event_id === e.id && a.profile_id === p.id)
+              .reduce((sum, a) => sum + Number(a.points || 0), 0);
+            const adjustedScore = base.voteCount > 0
+              ? clampScore(base.score + bonusMalusImpactInternal(eventAdjustment))
+              : 0;
+            return { ...base, eventId: e.id, eventAdjustment, bonusMalusImpact: bonusMalusImpactVisible(eventAdjustment), adjustedScore };
+          })
           .filter((x) => x.voteCount > 0);
 
         const performanceSum = eventScores.reduce((sum, x) => sum + x.score, 0);
         const performanceAvg = eventScores.length ? performanceSum / eventScores.length : 0;
+        const adjustedPerformanceSum = eventScores.reduce((sum, x) => sum + x.adjustedScore, 0);
+        const adjustedPerformanceAvg = eventScores.length ? adjustedPerformanceSum / eventScores.length : 0;
+
         const attendanceRows = attendance.filter((a) => eventIds.has(a.event_id) && a.profile_id === p.id);
         const attendedCount = attendanceRows.filter((a) => a.status === "present").length;
         const attendancePct = attendanceRows.length ? (attendedCount / attendanceRows.length) * 100 : 0;
@@ -917,15 +945,32 @@ export default function Home() {
         const adjustment = adjustments
           .filter((a) => eventIds.has(a.event_id) && a.profile_id === p.id)
           .reduce((sum, a) => sum + Number(a.points || 0), 0);
-        const rankingAverage = Math.max(0, performanceAvg + missedVoting.averagePenalty + unjustifiedAbsence.averagePenalty);
+        const rankingAverage = Math.max(
+          0,
+          adjustedPerformanceAvg + missedVoting.averagePenalty + unjustifiedAbsence.averagePenalty
+        );
 
         return {
-          ...p, performanceAvg, rankingAverage, attendancePct, scoredEvents: eventScores.length, adjustment,
-          missedVotingCount: missedVoting.missedEvents, missedVotingAvgPenalty: missedVoting.averagePenalty,
-          unjustifiedAbsenceCount: unjustifiedAbsence.count, unjustifiedAbsenceAvgPenalty: unjustifiedAbsence.averagePenalty,
+          ...p,
+          performanceAvg,
+          adjustedPerformanceAvg,
+          bonusMalusAverageImpact: adjustedPerformanceAvg - performanceAvg,
+          rankingAverage,
+          attendancePct,
+          scoredEvents: eventScores.length,
+          adjustment,
+          missedVotingCount: missedVoting.missedEvents,
+          missedVotingAvgPenalty: missedVoting.averagePenalty,
+          unjustifiedAbsenceCount: unjustifiedAbsence.count,
+          unjustifiedAbsenceAvgPenalty: unjustifiedAbsence.averagePenalty,
         };
       })
-      .sort((a, b) => b.rankingAverage - a.rankingAverage || b.attendancePct - a.attendancePct || b.performanceAvg - a.performanceAvg);
+      .sort(
+        (a, b) =>
+          b.rankingAverage - a.rankingAverage ||
+          b.attendancePct - a.attendancePct ||
+          b.adjustedPerformanceAvg - a.adjustedPerformanceAvg
+      );
   }
 
   const attendanceStats = useMemo(() => {
@@ -951,6 +996,8 @@ export default function Home() {
           title: profiles.find((p) => p.id === row.profile_id)?.title ?? "",
           role: profiles.find((p) => p.id === row.profile_id)?.role ?? "user" as Role,
           performanceAvg: Number(row.performance_avg),
+          adjustedPerformanceAvg: Number(row.adjusted_performance_avg ?? row.performance_avg),
+          bonusMalusAverageImpact: Number(row.adjusted_performance_avg ?? row.performance_avg) - Number(row.performance_avg),
           rankingAverage: Number(row.ranking_average),
           attendancePct: Number(row.attendance_pct),
           scoredEvents: Number(row.scored_events ?? 0),
@@ -1190,12 +1237,31 @@ export default function Home() {
   const seasonPlayerDetails = profiles
     .map((profile) => {
       const seasonEventScores = historySeasonEvents
-        .map((event) => eventFinalScore(event.id, profile.id))
+        .map((event) => {
+          const base = eventFinalScore(event.id, profile.id);
+          const eventAdjustment = adjustments
+            .filter((adjustment) => adjustment.profile_id === profile.id && adjustment.event_id === event.id)
+            .reduce((sum, adjustment) => sum + Number(adjustment.points || 0), 0);
+          const adjustedScore = base.voteCount > 0
+            ? clampScore(base.score + bonusMalusImpactInternal(eventAdjustment))
+            : 0;
+          return {
+            ...base,
+            eventId: event.id,
+            eventName: event.name,
+            eventDate: event.event_date,
+            eventAdjustment,
+            bonusMalusImpact: bonusMalusImpactVisible(eventAdjustment),
+            adjustedScore,
+          };
+        })
         .filter((score) => score.voteCount > 0);
 
       const performanceAvg = seasonEventScores.length
-        ? seasonEventScores.reduce((sum, score) => sum + score.score, 0) /
-          seasonEventScores.length
+        ? seasonEventScores.reduce((sum, score) => sum + score.score, 0) / seasonEventScores.length
+        : 0;
+      const adjustedPerformanceAvg = seasonEventScores.length
+        ? seasonEventScores.reduce((sum, score) => sum + score.adjustedScore, 0) / seasonEventScores.length
         : 0;
 
       const categoryAverages = Object.fromEntries(
@@ -1203,86 +1269,53 @@ export default function Home() {
           const validValues = seasonEventScores
             .map((score) => score.values?.[category.key])
             .filter((value): value is number => typeof value === "number");
-
           const avg = validValues.length
             ? validValues.reduce((sum, value) => sum + value, 0) / validValues.length
             : 0;
-
           return [category.key, avg];
         })
       ) as Record<CategoryKey, number>;
 
       const seasonAttendance = attendance.filter(
-        (row) =>
-          row.profile_id === profile.id &&
-          historySeasonEvents.some((event) => event.id === row.event_id)
+        (row) => row.profile_id === profile.id && historySeasonEvents.some((event) => event.id === row.event_id)
       );
-
       const presentCount = seasonAttendance.filter((row) => row.status === "present").length;
       const justifiedCount = seasonAttendance.filter((row) => row.status === "justified").length;
       const unjustifiedCount = seasonAttendance.filter((row) => row.status === "unjustified").length;
-      const attendancePct = seasonAttendance.length
-        ? (presentCount / seasonAttendance.length) * 100
-        : 0;
+      const attendancePct = seasonAttendance.length ? (presentCount / seasonAttendance.length) * 100 : 0;
 
       let missedVotingCount = 0;
-
       historySeasonEvents.forEach((event) => {
         if (!event.is_closed || !event.closed_at || !isDeadlineExpired(event)) return;
-
         const wasPresent = attendance.some(
-          (row) =>
-            row.event_id === event.id &&
-            row.profile_id === profile.id &&
-            row.status === "present"
+          (row) => row.event_id === event.id && row.profile_id === profile.id && row.status === "present"
         );
-
         if (!wasPresent) return;
-
         const presentIds = attendance
           .filter((row) => row.event_id === event.id && row.status === "present")
           .map((row) => row.profile_id);
-
         const requiredTargets = presentIds.filter((id) => id !== profile.id);
-
         const completedTargets = new Set(
           votes
-            .filter(
-              (vote) =>
-                vote.event_id === event.id &&
-                vote.voter_id === profile.id &&
-                requiredTargets.includes(vote.target_id)
-            )
+            .filter((vote) => vote.event_id === event.id && vote.voter_id === profile.id && requiredTargets.includes(vote.target_id))
             .map((vote) => vote.target_id)
         );
-
-        if (completedTargets.size < requiredTargets.length) {
-          missedVotingCount += 1;
-        }
+        if (completedTargets.size < requiredTargets.length) missedVotingCount += 1;
       });
 
       const missedVotingPenalty = missedVotingCount * MISSED_VOTING_AVG_PENALTY;
       const unjustifiedPenalty = unjustifiedCount * UNJUSTIFIED_AVG_PENALTY;
-
       const seasonAdjustments = adjustments.filter(
-        (adjustment) =>
-          adjustment.profile_id === profile.id &&
-          historySeasonEvents.some((event) => event.id === adjustment.event_id)
+        (adjustment) => adjustment.profile_id === profile.id && historySeasonEvents.some((event) => event.id === adjustment.event_id)
       );
-
-      const adjustmentTotal = seasonAdjustments.reduce(
-        (sum, adjustment) => sum + Number(adjustment.points || 0),
-        0
-      );
-
-      const rankingAverage = Math.max(
-        0,
-        performanceAvg + missedVotingPenalty + unjustifiedPenalty
-      );
+      const adjustmentTotal = seasonAdjustments.reduce((sum, adjustment) => sum + Number(adjustment.points || 0), 0);
+      const rankingAverage = Math.max(0, adjustedPerformanceAvg + missedVotingPenalty + unjustifiedPenalty);
 
       return {
         ...profile,
         performanceAvg,
+        adjustedPerformanceAvg,
+        bonusMalusAverageImpact: adjustedPerformanceAvg - performanceAvg,
         rankingAverage,
         categoryAverages,
         presentCount,
@@ -1294,13 +1327,14 @@ export default function Home() {
         unjustifiedPenalty,
         adjustmentTotal,
         scoredEvents: seasonEventScores.length,
+        eventBreakdown: seasonEventScores,
       };
     })
     .sort(
       (a, b) =>
         b.rankingAverage - a.rankingAverage ||
         b.attendancePct - a.attendancePct ||
-        b.performanceAvg - a.performanceAvg
+        b.adjustedPerformanceAvg - a.adjustedPerformanceAvg
     );
 
 
@@ -1487,35 +1521,41 @@ export default function Home() {
                     <div className="person-name">{r.name}</div>
                     <div className="title">{r.title}</div>
                     <div className="muted tiny">
-                      Promedio general {r.performanceAvg.toFixed(1)} · Asistencia {r.attendancePct.toFixed(0)}%
+                      Promedio general {formatRankingScore(r.performanceAvg)} · Promedio ajustado {formatRankingScore(r.adjustedPerformanceAvg)} · Asistencia {r.attendancePct.toFixed(0)}%
                       {" · "}{r.scoredEvents} juntadas puntuadas
                     </div>
 
                     <div className="ranking-penalties">
                       <span className={`penalty-detail ${r.missedVotingCount === 0 ? "neutral" : ""}`}>
-                        🗳️ No votar: <strong>{r.missedVotingAvgPenalty.toFixed(1)}</strong>
+                        🗳️ No votar: <strong>{formatRankingScore(r.missedVotingAvgPenalty)}</strong>
                         {" "}({r.missedVotingCount})
                       </span>
 
                       <span className={`penalty-detail ${r.unjustifiedAbsenceCount === 0 ? "neutral" : ""}`}>
-                        🔴 No justificables: <strong>{r.unjustifiedAbsenceAvgPenalty.toFixed(1)}</strong>
+                        🔴 No justificables: <strong>{formatRankingScore(r.unjustifiedAbsenceAvgPenalty)}</strong>
                         {" "}({r.unjustifiedAbsenceCount})
                       </span>
 
                       <span className="penalty-detail bonus">
-                        ⚡ Bonus/Malus: <strong>{r.adjustment >= 0 ? "+" : ""}{r.adjustment}</strong>
+                        ⚡ B/M: <strong>{r.adjustment >= 0 ? "+" : ""}{r.adjustment}</strong>
+                        {" → "}incidencia <strong>{r.bonusMalusAverageImpact >= 0 ? "+" : ""}{formatRankingScore(r.bonusMalusAverageImpact)}</strong>
                       </span>
                     </div>
 
                     <div className="muted tiny ranking-formula-line">
-                      🏆 Promedio ranking: {r.performanceAvg.toFixed(1)}
-                      {r.missedVotingAvgPenalty !== 0 && <> {r.missedVotingAvgPenalty.toFixed(1)}</>}
-                      {r.unjustifiedAbsenceAvgPenalty !== 0 && <> {r.unjustifiedAbsenceAvgPenalty.toFixed(1)}</>}
-                      {" = "}<strong>{r.rankingAverage.toFixed(1)}</strong>
+                      📊 {formatRankingScore(r.performanceAvg)}
+                      {r.bonusMalusAverageImpact !== 0 && (
+                        <> {r.bonusMalusAverageImpact >= 0 ? "+" : ""}{formatRankingScore(r.bonusMalusAverageImpact)} B/M</>
+                      )}
+                      {" → ajustado "}<strong>{formatRankingScore(r.adjustedPerformanceAvg)}</strong>
+                      {" → ranking "}
+                      {r.missedVotingAvgPenalty !== 0 && <> {formatRankingScore(r.missedVotingAvgPenalty)} no votar</>}
+                      {r.unjustifiedAbsenceAvgPenalty !== 0 && <> {formatRankingScore(r.unjustifiedAbsenceAvgPenalty)} faltas</>}
+                      {" = "}<strong>{formatRankingScore(r.rankingAverage)}</strong>
                     </div>
                   </div>
                   <div className="points">
-                    <strong>{r.rankingAverage.toFixed(1)}</strong>
+                    <strong>{formatRankingScore(r.rankingAverage)}</strong>
                     <small>ranking</small>
                   </div>
                 </div>
@@ -2108,6 +2148,17 @@ export default function Home() {
                             <strong>{formatRankingScore(player.performanceAvg)}</strong>
                           </div>
                           <div>
+                            <small>Promedio ajustado</small>
+                            <strong>{formatRankingScore(player.adjustedPerformanceAvg)}</strong>
+                          </div>
+                          <div>
+                            <small>Incidencia Bonus/Malus</small>
+                            <strong>
+                              {player.bonusMalusAverageImpact >= 0 ? "+" : ""}
+                              {formatRankingScore(player.bonusMalusAverageImpact)}
+                            </strong>
+                          </div>
+                          <div>
                             <small>Promedio ranking</small>
                             <strong>{formatRankingScore(player.rankingAverage)}</strong>
                           </div>
@@ -2167,15 +2218,39 @@ export default function Home() {
                           </div>
                         </div>
 
+                        <div className="season-event-breakdown">
+                          <h4>📅 Incidencia Bonus/Malus por juntada</h4>
+                          {player.eventBreakdown.map((eventScore) => (
+                            <div className="season-event-row" key={eventScore.eventId}>
+                              <div className="grow">
+                                <strong>{eventScore.eventName}</strong>
+                                <small className="muted">{eventScore.eventDate ? formatDate(eventScore.eventDate) : ""}</small>
+                              </div>
+                              <span>Base {formatRankingScore(eventScore.score)}</span>
+                              <span className={eventScore.eventAdjustment >= 0 ? "positive" : "negative"}>
+                                B/M {eventScore.eventAdjustment >= 0 ? "+" : ""}{eventScore.eventAdjustment.toFixed(1)}
+                              </span>
+                              <span className={eventScore.bonusMalusImpact >= 0 ? "positive" : "negative"}>
+                                Inc. {eventScore.bonusMalusImpact >= 0 ? "+" : ""}{eventScore.bonusMalusImpact.toFixed(1)}
+                              </span>
+                              <strong>Final {formatRankingScore(eventScore.adjustedScore)}</strong>
+                            </div>
+                          ))}
+                        </div>
+
                         <div className="season-ranking-formula">
-                          🏆 Ranking: {formatRankingScore(player.performanceAvg)}
+                          📊 General {formatRankingScore(player.performanceAvg)}
+                          {player.bonusMalusAverageImpact !== 0 && (
+                            <> {player.bonusMalusAverageImpact >= 0 ? "+" : ""}{formatRankingScore(player.bonusMalusAverageImpact)} B/M</>
+                          )}
+                          {" = Ajustado "}<strong>{formatRankingScore(player.adjustedPerformanceAvg)}</strong>
                           {player.missedVotingPenalty !== 0 && (
-                            <> {formatRankingScore(player.missedVotingPenalty)}</>
+                            <> {" "}{formatRankingScore(player.missedVotingPenalty)} no votar</>
                           )}
                           {player.unjustifiedPenalty !== 0 && (
-                            <> {formatRankingScore(player.unjustifiedPenalty)}</>
+                            <> {" "}{formatRankingScore(player.unjustifiedPenalty)} faltas</>
                           )}
-                          {" = "}
+                          {" → Ranking "}
                           <strong>{formatRankingScore(player.rankingAverage)}</strong>
                         </div>
                       </div>
@@ -2451,355 +2526,55 @@ function Rules() {
     <>
       <section className="card">
         <h2>📜 Reglas de puntuación</h2>
-        <p className="muted">Cada asistente puntúa a los demás asistentes de 1 a 10. El resultado de la fecha se calcula por categoría y después se aplican los pesos.</p>
+        <p className="muted">La votación define el rendimiento base. Bonus/Malus modifica cada juntada con un factor reducido, y las sanciones fuertes se aplican después sobre el ranking.</p>
         <div className="rules-grid">
-          <div className="rule-card"><span>🛒</span><div><strong>Colaboración</strong><small>Compras, organización, traer cosas, dar una mano.</small></div><b>30%</b></div>
-          <div className="rule-card"><span>🧹</span><div><strong>Limpieza</strong><small>Ordenar, lavar, levantar y ayudar al final.</small></div><b>30%</b></div>
-          <div className="rule-card"><span>🤝</span><div><strong>Comportamiento</strong><small>Buena onda, convivencia y respeto al grupo.</small></div><b>20%</b></div>
-          <div className="rule-card"><span>🎉</span><div><strong>Actitud</strong><small>Predisposición, participación y coparse.</small></div><b>20%</b></div>
+          <div className="rule-card"><span>🛒</span><div><strong>Colaboración</strong><small>Compras, organización y aporte.</small></div><b>30%</b></div>
+          <div className="rule-card"><span>🧹</span><div><strong>Limpieza</strong><small>Orden, cuidado del espacio y limpieza durante la juntada.</small></div><b>30%</b></div>
+          <div className="rule-card"><span>🤝</span><div><strong>Comportamiento</strong><small>Convivencia, respeto y buena onda.</small></div><b>20%</b></div>
+          <div className="rule-card"><span>🎉</span><div><strong>Actitud</strong><small>Predisposición y participación.</small></div><b>20%</b></div>
         </div>
       </section>
 
       <section className="card">
-        <h2>🛡️ Control de votos</h2>
+        <h2>📌 Cómo se forman los promedios</h2>
         <div className="rule-lines">
-          <div><span>✂️</span><div><strong>Promedio recortado</strong><small>Con 5 o más votos recibidos se elimina la nota más alta y la más baja de cada categoría antes de calcular el promedio.</small></div></div>
-          <div><span>🎚️</span><div><strong>Escala de votación</strong><small>En cada categoría elegís una de cinco opciones: 😡 Muy mala = 2, 😕 Mala = 4, 😐 Regular = 6, 🙂 Buena = 8 y 🤩 Excelente = 10. Los números se usan internamente para calcular promedios y ranking.</small></div></div>
-          <div><span>⚠️</span><div><strong>Voto atípico</strong><small>Si una nota queda a más de 3 puntos del promedio de los demás, queda marcada para control.</small></div></div>
-          <div><span>🔴</span><div><strong>Voto dudoso</strong><small>Si una nota se aleja más de 4 puntos del promedio del resto, o si el voto tiene un patrón extremo como “Muy mala” en todo o “Excelente” en todo, exige una explicación y queda pendiente de aprobación del Admin. Mientras esté pendiente no entra en el ranking.</small></div></div>
-          <div><span>👑</span><div><strong>Revisión del Admin</strong><small>El Admin puede aprobar o rechazar un voto dudoso. Aprobado: computa normalmente. Rechazado: queda registrado pero no suma al puntaje.</small></div></div>
-          <div><span>🙅</span><div><strong>Sin auto-voto</strong><small>Nadie puede puntuarse a sí mismo y solo los asistentes pueden votar.</small></div></div>
+          <div><span>📊</span><div><strong>Promedio general</strong><small>Es el promedio puro de las votaciones válidas. Se muestra sobre 100 y no incluye Bonus/Malus ni sanciones.</small></div></div>
+          <div><span>⚡</span><div><strong>Bonus/Malus por juntada · factor 0,25</strong><small>Cada ajuste pertenece a una juntada. Cada punto cargado vale 0,25 puntos sobre el puntaje visible de esa fecha. Ejemplo: Bonus +6 → incidencia +1,5. Si la base era 81,7, el final de esa juntada queda 83,2. Un Malus −4 genera una incidencia −1,0.</small></div></div>
+          <div><span>📈</span><div><strong>Promedio ajustado</strong><small>Es el promedio de los puntajes finales de cada juntada después de aplicar su Bonus/Malus. Por eso un Bonus aislado influye, pero su efecto se diluye naturalmente al promediar toda la temporada.</small></div></div>
+          <div><span>🏆</span><div><strong>Promedio de ranking</strong><small>Parte del Promedio ajustado y luego descuenta las sanciones: −10,0 por cada votación obligatoria incumplida y −7,0 por cada falta no justificable. Este valor ordena la tabla.</small></div></div>
         </div>
       </section>
 
       <section className="card">
-        <h2>⏰ Cierre y plazo para votar</h2>
+        <h2>🛡️ Votaciones</h2>
         <div className="rule-lines">
-          <div><span>🔒</span><div><strong>Cierre de la juntada</strong><small>El Admin confirma asistencias y cierra la fecha. Desde ese momento comienza el plazo de votación.</small></div></div>
-          <div><span>2️⃣</span><div><strong>48 horas</strong><small>Cada asistente tiene 2 días para puntuar a todos los demás asistentes.</small></div></div>
-          <div><span>🚫</span><div><strong>Quiénes pueden votar</strong><small>Solo pueden votar quienes estuvieron marcados como presentes en esa juntada. Además, únicamente pueden puntuar a otros asistentes presentes. Quien faltó no puede votar esa fecha.</small></div></div>
-          <div><span>−5</span><div><strong>Votación incompleta (−1,0 al promedio)</strong><small>Si al vencer las 48 horas no completó todos sus votos, recibe −5 puntos una sola vez por esa juntada.</small></div></div>
-          <div><span>⛔</span><div><strong>Plazo vencido</strong><small>Después de las 48 horas los votos de esa fecha quedan bloqueados.</small></div></div>
+          <div><span>🎚️</span><div><strong>Escala</strong><small>😡 Muy mala = 2, 😕 Mala = 4, 😐 Regular = 6, 🙂 Buena = 8 y 🤩 Excelente = 10.</small></div></div>
+          <div><span>✂️</span><div><strong>Promedio recortado</strong><small>Con 5 o más votos válidos se elimina un mínimo y un máximo de cada categoría antes de promediar.</small></div></div>
+          <div><span>⚠️</span><div><strong>Voto atípico</strong><small>Más de 3 puntos de diferencia respecto del resto queda marcado para control.</small></div></div>
+          <div><span>🔴</span><div><strong>Voto dudoso</strong><small>Más de 4 puntos de diferencia o un patrón extremo requiere explicación y aprobación del Admin.</small></div></div>
+          <div><span>🙅</span><div><strong>Sin auto-voto</strong><small>Solo asistentes presentes pueden votar y nadie puede votarse a sí mismo.</small></div></div>
+          <div><span>⏳</span><div><strong>48 horas</strong><small>Al cerrar la juntada comienza el plazo de 48 horas para completar todos los votos obligatorios.</small></div></div>
+          <div><span>🗳️</span><div><strong>No completar la votación: −10,0</strong><small>Por cada juntada vencida en la que un asistente no completó todos sus votos se descuentan 10,0 puntos directos del Promedio de ranking.</small></div></div>
         </div>
       </section>
 
       <section className="card">
         <h2>📅 Asistencia y sanciones</h2>
         <div className="rule-lines">
-          <div><span>✅</span><div><strong>Asistió</strong><small>Puede recibir y emitir votos normalmente.</small></div></div>
-          <div><span>🟡</span><div><strong>Falta justificable</strong><small>Cuenta como inasistencia para el porcentaje, pero no resta puntos.</small></div></div>
-          <div><span>🔴</span><div><strong>Falta no justificable</strong><small>Cuenta como inasistencia y resta 10 puntos automáticamente.</small></div></div>
-          <div><span>⚡</span><div><strong>Bonus / Malus</strong><small>Solo el Admin puede asignarlos y siempre llevan una descripción. Se acumulan durante la temporada, pero para el ranking se normalizan dividiendo el total de ajustes por la cantidad de juntadas computadas. Ejemplo: +5 y −10 en 5 juntadas = −1 punto sobre el ranking final. No modifican los promedios por categoría ni el porcentaje de asistencia.</small></div></div>
+          <div><span>✅</span><div><strong>Presente</strong><small>Participa normalmente de la fecha y de la votación.</small></div></div>
+          <div><span>🟡</span><div><strong>Falta justificable</strong><small>Cuenta como ausencia para asistencia, pero no descuenta puntos.</small></div></div>
+          <div><span>🔴</span><div><strong>Falta no justificable: −7,0</strong><small>Descuenta 7,0 puntos directos del Promedio de ranking por cada falta no justificable.</small></div></div>
+          <div><span>➕</span><div><strong>Sanciones acumulativas</strong><small>No se normalizan por cantidad de juntadas. Dos incumplimientos de voto descuentan 20,0; dos faltas no justificables descuentan 14,0.</small></div></div>
         </div>
       </section>
 
       <section className="card">
-        <h2>📜 Reglamento completo</h2>
-        <p className="muted">
-          Estas son las reglas que usa la Liga de Juntadas para asistencia, votaciones, ranking y sanciones.
-        </p>
-
-        
-        <div className="metric-explainer">
-          <h3>📌 Qué significa cada número</h3>
-          <div className="metric-explainer-grid">
-            <div>
-              <strong>Promedio general</strong>
-              <small>
-                Es el promedio puro de rendimiento obtenido a partir de las cuatro categorías:
-                Colaboración, Limpieza, Comportamiento y Actitud. No incluye sanciones.
-              </small>
-            </div>
-            <div>
-              <strong>Promedio de ranking</strong>
-              <small>
-                Es el Promedio general menos las sanciones directas por no votar y por faltas no justificables.
-                Este es el valor que define la posición en la tabla.
-              </small>
-            </div>
-            <div>
-              <strong>Puntos ajustados</strong>
-              <small>
-                Son un dato adicional para mostrar otros efectos de la temporada, como Bonus/Malus y ajustes.
-                No ordenan el ranking principal.
-              </small>
-            </div>
-          </div>
+        <h2>🏛️ Historial y temporadas</h2>
+        <div className="rule-lines">
+          <div><span>📅</span><div><strong>Temporada actual</strong><small>Ranking abre por defecto en la temporada activa. Historial también permite consultar la temporada en curso con todo su desglose.</small></div></div>
+          <div><span>🔎</span><div><strong>Detalle por juntada</strong><small>En Historial se ve Base, Bonus/Malus cargado, incidencia real ×0,25 y Puntaje final de cada fecha.</small></div></div>
+          <div><span>🧊</span><div><strong>Temporadas cerradas</strong><small>Al cerrar una temporada se conserva su resultado final, podio y premios.</small></div></div>
         </div>
-
-<div className="rule-lines">
-          <div>
-            <span>🎚️</span>
-            <div>
-              <strong>Escala de votación</strong>
-              <small>
-                Cada categoría se vota con cinco opciones: 😡 Muy mala = 2, 😕 Mala = 4,
-                😐 Regular = 6, 🙂 Buena = 8 y 🤩 Excelente = 10. Los números se usan internamente
-                para hacer los cálculos.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🛒</span>
-            <div>
-              <strong>Categorías y pesos</strong>
-              <small>
-                Colaboración 30%, Limpieza 30%, Comportamiento 20% y Actitud 20%.
-                El puntaje de cada juntada sale de esa combinación ponderada.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>📊</span>
-            <div>
-            <span>🏁</span>
-            <div>
-              <strong>Promedio de ranking</strong>
-              <small>
-                Es el promedio bruto menos 1,0 por cada juntada en la que no completaste los votos dentro de 48 horas
-                y menos 0,7 por cada ausencia no justificable. Ese valor define la posición en la tabla.
-              </small>
-            </div>
-          </div>
-
-          <div>
-              <strong>Promedio general</strong>
-              <small>
-                El ranking principal se ordena por el promedio general de rendimiento de las juntadas
-                donde el jugador recibió votos válidos. Faltar una fecha no agrega un cero al promedio.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🔒</span>
-            <div>
-              <strong>Visibilidad del ranking</strong>
-              <small>
-                Para evitar que los resultados condicionen los votos, un usuario presente con votos
-                pendientes no puede ver las actualizaciones de promedios ni puntajes. El ranking se
-                desbloquea automáticamente cuando completa todos sus votos obligatorios de las
-                juntadas cuya votación siga abierta. El Admin siempre puede verlo.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🏆</span>
-            <div>
-              <strong>Orden del ranking</strong>
-              <small>
-                Se ordena de mayor a menor promedio general. Si hay empate, primero se usa el porcentaje
-                de asistencia y luego los puntos ajustados como desempate.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>➕</span>
-            <div>
-              <strong>Puntos ajustados</strong>
-              <small>
-                Los puntos ajustados son un dato adicional. Reflejan asistencia, Bonus/Malus,
-                faltas no justificables y penalizaciones por no votar, pero no determinan
-                directamente la posición principal.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>✅</span>
-            <div>
-              <strong>Asistencia</strong>
-              <small>
-                Cada persona queda marcada como Presente, Justificable o No justificable.
-                El porcentaje de asistencia se calcula sobre las juntadas donde ya tiene estado cargado.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🟡</span>
-            <div>
-              <strong>Ausencia justificable</strong>
-              <small>
-                Cuenta como ausencia para el porcentaje de asistencia, pero no descuenta puntos.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🔴</span>
-            <div>
-              <strong>Ausencia no justificable (−0,7 al promedio)</strong>
-              <small>
-                Cuenta como ausencia y aplica una penalización severa de −0,7 puntos directos sobre el promedio de ranking por cada ausencia no justificable.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🚫</span>
-            <div>
-              <strong>Quiénes pueden votar</strong>
-              <small>
-                Solo pueden votar quienes estuvieron presentes en esa juntada y únicamente pueden
-                puntuar a otros asistentes presentes. Nadie puede votarse a sí mismo.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>⏳</span>
-            <div>
-              <strong>Plazo de votación</strong>
-              <small>
-                Una vez que el Admin cierra la juntada, se habilita una ventana de 48 horas para votar.
-                En el inicio del ranking aparece un timer por cada juntada con votación abierta.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>−5</span>
-            <div>
-              <strong>Votación incompleta (−1,0 al promedio)</strong>
-              <small>
-                Si un asistente no completa todos los votos obligatorios dentro de las 48 horas,
-                recibe una penalización severa de −1,0 punto directo sobre su promedio de ranking por cada juntada incumplida.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🗳️</span>
-            <div>
-              <strong>Votaciones pendientes</strong>
-              <small>
-                En el inicio del ranking se muestra quién falta votar, en qué juntada y cuántos votos
-                le faltan. Si el plazo venció, también se indica la penalización.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>✏️</span>
-            <div>
-              <strong>Edición de votos</strong>
-              <small>
-                Un voto ya guardado puede editarse todas las veces que sea necesario mientras siga abierta
-                la ventana de 48 horas. Al vencer el plazo queda bloqueado y pasa a ser solo de lectura.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>⚠️</span>
-            <div>
-              <strong>Voto atípico</strong>
-              <small>
-                Si una nota se aleja más de 3 puntos del promedio del resto, queda marcada para control
-                del Admin, aunque puede guardarse.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🔴</span>
-            <div>
-              <strong>Voto dudoso</strong>
-              <small>
-                Si una nota se aleja más de 4 puntos del promedio del resto, con suficientes votos
-                comparables, o si el voto tiene un patrón extremo como “Muy mala” en todo o
-                “Excelente” en todo, exige explicación y queda pendiente de aprobación.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>👑</span>
-            <div>
-              <strong>Revisión del Admin</strong>
-              <small>
-                Un voto dudoso pendiente no entra en el ranking. El Admin puede aprobarlo o rechazarlo.
-                Si se aprueba, computa normalmente. Si se rechaza, queda registrado pero no suma.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>✂️</span>
-            <div>
-              <strong>Promedio recortado</strong>
-              <small>
-                Cuando hay 5 o más votos válidos para una categoría de una persona en una juntada,
-                se elimina un valor mínimo y un valor máximo antes de calcular el promedio.
-                Esto reduce el efecto de votos extremos.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>⚡</span>
-            <div>
-              <strong>Bonus / Malus</strong>
-              <small>
-                Solo el Admin puede asignarlos y siempre llevan una descripción. Se acumulan durante
-                la temporada y forman parte de los puntos ajustados. No cambian el promedio general,
-                los promedios de categorías ni el porcentaje de asistencia.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🕘</span>
-            <div>
-              <strong>Votos históricos</strong>
-              <small>
-                Los votos anteriores al sistema de revisión siguen siendo válidos y se consideran
-                aprobados. Si tenían valores numéricos 1–10, se muestran con la descripción más cercana
-                sin modificar su valor original.
-              </small>
-            </div>
-          </div>
-
-          <div>
-            <span>🔒</span>
-            <div>
-              <strong>Cierre de juntada</strong>
-              <small>
-                El Admin puede cerrar una juntada únicamente cuando la asistencia de todos ya fue cargada.
-                Una juntada cerrada no se puede editar desde la interfaz mientras la votación está en curso.
-              </small>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="card">
-        <h2>🧮 Cómo sale el puntaje</h2>
-
-        <div className="formula">
-          <strong>Rendimiento de cada juntada:</strong><br />
-          <strong>30%</strong> Colaboración + <strong>30%</strong> Limpieza + <strong>20%</strong> Comportamiento + <strong>20%</strong> Actitud
-        </div>
-
-        <p className="muted">Ejemplo de una fecha: 8 en Colaboración, 9 en Limpieza, 7 en Comportamiento y 10 en Actitud = <strong>85 puntos</strong>.</p>
-
-        <div className="formula" style={{marginTop: 12}}>
-          <strong>Ranking de temporada:</strong><br />
-          La posición se define por el <strong>promedio general de rendimiento</strong>.
-        </div>
-
-        <div className="rule-lines" style={{marginTop: 12}}>
-          <div><span>📊</span><div><strong>Promedio general</strong><small>Es el promedio de los puntajes de las juntadas donde participaste y recibiste votos válidos. Este valor define la posición en el ranking. Faltar una fecha no agrega un cero al promedio.</small></div></div>
-          <div><span>🏆</span><div><strong>Orden de la tabla</strong><small>Se ordena de mayor a menor promedio general. Si dos jugadores tienen el mismo promedio, se usa primero el porcentaje de asistencia como desempate y luego los puntos ajustados.</small></div></div>
-          <div><span>➕</span><div><strong>Puntos como dato adicional</strong><small>El puntaje ajustado sigue mostrando el efecto de asistencia, Bonus/Malus, faltas no justificables y penalizaciones por no votar, pero ya no determina directamente la posición en la tabla.</small></div></div>
-        </div>
-
-        <p className="muted tiny">Los puntos ajustados siguen en escala 0–100, pero son informativos. El ranking se define por el promedio general.</p>
       </section>
     </>
   );

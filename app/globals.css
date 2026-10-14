@@ -728,3 +728,11 @@ label{display:block;color:var(--muted);font-size:12px;margin:9px 0 6px}
     grid-template-columns:1fr 1fr;
   }
 }
+
+
+/* v11.6: incidencia Bonus/Malus por juntada */
+.season-event-breakdown{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:10px;background:rgba(255,255,255,.02)}
+.season-event-breakdown h4{margin:0 0 8px;font-size:12px}
+.season-event-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto auto auto;gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line);font-size:11px}
+.season-event-row:first-of-type{border-top:0}.season-event-row small{display:block;margin-top:2px}.season-event-row .positive{color:#8ce99a}.season-event-row .negative{color:#ff9aac}
+@media(max-width:760px){.season-event-row{grid-template-columns:1fr 1fr}}
